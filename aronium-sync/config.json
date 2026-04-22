@@ -1,0 +1,7 @@
+{
+  "branch_id":        "ضع-هنا-UUID-الفرع-من-Supabase",
+  "supabase_url":     "https://XXXXXXXXXXXX.supabase.co",
+  "supabase_key":     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "aronium_db_path":  "C:\\Users\\USERNAME\\AppData\\Local\\Aronium\\Data\\pos.db",
+  "branch_name":      "اسم الفرع للسجلات"
+}

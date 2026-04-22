@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0f1511;
+  --card: #1a2420;
+  --card-hi: #223029;
+  --green: #3fa66a;
+  --green-dark: #2d8050;
+  --cream: #f4ede0;
+  --muted: #8a9690;
+  --line: #2a3832;
+  --red: #e06b5c;
+  --amber: #e3a857;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  direction: rtl;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--cream);
+  font-family: "Readex Pro", "Tajawal", sans-serif;
+  min-height: 100vh;
+}
+
+.ltr-num {
+  direction: ltr;
+  text-align: right;
+}
+
+.cashier-input {
+  font-size: 32px;
+  font-weight: 900;
+  direction: ltr;
+  text-align: right;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--card); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+}

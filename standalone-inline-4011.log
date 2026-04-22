@@ -1,0 +1,32 @@
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:4011
+  - Network:      http://0.0.0.0:4011
+
+ ✓ Starting...
+ ✓ Ready in 59ms
+Error: Invalid supabaseUrl: Must be a valid HTTP or HTTPS URL.
+    at C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\.next\server\chunks\336.js:37:48221
+    at new rL (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\.next\server\chunks\336.js:37:48403)
+    at rD (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\.next\server\chunks\336.js:37:52143)
+    at s (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\.next\server\app\(admin)\dashboard\page.js:1:40763)
+    at p (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\.next\server\app\(admin)\dashboard\page.js:1:29784)
+    at em (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\node_modules\next\dist\compiled\next-server\app-page.runtime.prod.js:12:134808)
+    at e (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\node_modules\next\dist\compiled\next-server\app-page.runtime.prod.js:12:137693)
+    at e_ (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\node_modules\next\dist\compiled\next-server\app-page.runtime.prod.js:12:138168)
+    at Array.toJSON (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\node_modules\next\dist\compiled\next-server\app-page.runtime.prod.js:12:135777)
+    at stringify (<anonymous>) {
+  digest: '4271841358'
+}
+Error: Invalid supabaseUrl: Must be a valid HTTP or HTTPS URL.
+    at C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\.next\server\chunks\336.js:37:48221
+    at new rL (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\.next\server\chunks\336.js:37:48403)
+    at rD (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\.next\server\chunks\336.js:37:52143)
+    at s (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\.next\server\app\(admin)\dashboard\page.js:1:40763)
+    at p (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\.next\server\app\(admin)\dashboard\page.js:1:29784)
+    at em (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\node_modules\next\dist\compiled\next-server\app-page.runtime.prod.js:12:134808)
+    at e (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\node_modules\next\dist\compiled\next-server\app-page.runtime.prod.js:12:137693)
+    at e_ (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\node_modules\next\dist\compiled\next-server\app-page.runtime.prod.js:12:138168)
+    at Array.toJSON (C:\Users\Mohammed\OneDrive\Desktop\Alshamal\marai-alshimal\.next\standalone\node_modules\next\dist\compiled\next-server\app-page.runtime.prod.js:12:135777)
+    at stringify (<anonymous>) {
+  digest: '4271841358'
+}
