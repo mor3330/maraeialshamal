@@ -595,16 +595,33 @@ function PurchasesReportPrint({ data }: { data: PurchaseRow[] }) {
     byBranch[key].push(r);
   });
 
-  /* تجميع حسب المورد */
-  const bySupplier: Record<string, { name: string; qty: number; weight: number; price: number }> = {};
+  /* تجميع حسب المورد مع تفصيل الأصناف */
+  interface SupplierItemRow { itemName: string; qty: number; weight: number; price: number; }
+  interface SupplierEntry { name: string; qty: number; weight: number; price: number; items: SupplierItemRow[]; }
+  const bySupplierMap: Record<string, { name: string; itemsMap: Record<string, SupplierItemRow> }> = {};
   data.forEach(r => {
-    const key  = r.suppliers?.id ?? "__none__";
-    const name = r.suppliers?.name ?? "بدون مورد";
-    if (!bySupplier[key]) bySupplier[key] = { name, qty: 0, weight: 0, price: 0 };
-    bySupplier[key].qty    += toN(r.quantity);
-    bySupplier[key].weight += toN(r.weight);
-    bySupplier[key].price  += toN(r.price);
+    const key      = r.suppliers?.id ?? "__none__";
+    const supName  = r.suppliers?.name ?? "بدون مورد";
+    const itemName = r.item_types?.name ?? "غير محدد";
+    if (!bySupplierMap[key]) bySupplierMap[key] = { name: supName, itemsMap: {} };
+    if (!bySupplierMap[key].itemsMap[itemName]) bySupplierMap[key].itemsMap[itemName] = { itemName, qty: 0, weight: 0, price: 0 };
+    bySupplierMap[key].itemsMap[itemName].qty    += toN(r.quantity);
+    bySupplierMap[key].itemsMap[itemName].weight += toN(r.weight);
+    bySupplierMap[key].itemsMap[itemName].price  += toN(r.price);
   });
+  const bySupplier: SupplierEntry[] = Object.values(bySupplierMap).map(s => {
+    const items = Object.values(s.itemsMap);
+    return {
+      name:   s.name,
+      qty:    items.reduce((a, i) => a + i.qty,    0),
+      weight: items.reduce((a, i) => a + i.weight, 0),
+      price:  items.reduce((a, i) => a + i.price,  0),
+      items,
+    };
+  });
+  const totalQtyAll    = bySupplier.reduce((a, s) => a + s.qty,    0);
+  const totalWeightAll = bySupplier.reduce((a, s) => a + s.weight, 0);
+  const totalPriceAll  = bySupplier.reduce((a, s) => a + s.price,  0);
 
   return (
     <div className="text-gray-900 font-[Readex_Pro,Tajawal,sans-serif]" dir="rtl">
@@ -669,39 +686,61 @@ function PurchasesReportPrint({ data }: { data: PurchaseRow[] }) {
 
       </div>
 
-      {/* ── ملخص الموردين ── */}
+      {/* ── ملخص الموردين مع تفصيل الأصناف ── */}
       <div className="summary-block rounded-2xl border border-gray-200 overflow-hidden mb-6">
         <div className="bg-amber-700 text-white px-5 py-3">
           <h2 className="font-black text-sm">ملخص حسب المورد</h2>
         </div>
         <table style={{width:"100%", tableLayout:"fixed", fontSize:"13px", borderCollapse:"collapse"}} dir="ltr">
           <colgroup>
-            <col style={{width:"40%"}}/><col style={{width:"20%"}}/><col style={{width:"20%"}}/><col style={{width:"20%"}}/>
+            <col style={{width:"30%"}}/><col style={{width:"22%"}}/><col style={{width:"16%"}}/><col style={{width:"16%"}}/><col style={{width:"16%"}}/>
           </colgroup>
           <thead>
             <tr style={{background:"#fffbeb", borderBottom:"2px solid #fde68a", fontSize:"12px", fontWeight:700}}>
               <th style={{padding:"10px 12px", textAlign:"right", borderRight:"1px solid #fde68a", color:"#92400e"}}>المورد</th>
+              <th style={{padding:"10px 8px", textAlign:"right", borderRight:"1px solid #fde68a", color:"#374151"}}>الصنف</th>
               <th style={{padding:"10px 8px", textAlign:"center", color:"#374151"}}>العدد</th>
               <th style={{padding:"10px 8px", textAlign:"center", color:"#0369a1", borderRight:"1px solid #e5e7eb"}}>الوزن (كجم)</th>
               <th style={{padding:"10px 8px", textAlign:"center", color:"#92400e"}}>الإجمالي (ريال)</th>
             </tr>
           </thead>
           <tbody>
-            {Object.values(bySupplier).map((s, i) => (
-              <tr key={i} style={{borderBottom:"1px solid #f3f4f6", background: i%2===0?"#fff":"#fffdf5"}}>
-                <td style={{padding:"10px 12px", fontWeight:700, color:"#1f2937", textAlign:"right", borderRight:"1px solid #e5e7eb"}}>{s.name}</td>
-                <td style={{padding:"10px 8px", textAlign:"center", color:"#374151", fontWeight:600}}>{fmt(s.qty)}</td>
-                <td style={{padding:"10px 8px", textAlign:"center", color:"#0369a1", fontWeight:700, borderRight:"1px solid #e5e7eb"}}>{fmt(s.weight, 2)}</td>
-                <td style={{padding:"10px 8px", textAlign:"center", color:"#92400e", fontWeight:800, fontSize:"14px"}}>{fmt(s.price, 2)}</td>
-              </tr>
+            {bySupplier.map((s, si) => (
+              s.items.map((item, ii) => (
+                <tr key={`${si}-${ii}`} style={{
+                  borderBottom: ii === s.items.length - 1 ? "2px solid #fde68a" : "1px solid #f3f4f6",
+                  background: si%2===0?"#fff":"#fffdf5"
+                }}>
+                  {/* اسم المورد: يظهر فقط في أول صف */}
+                  {ii === 0 ? (
+                    <td rowSpan={s.items.length} style={{
+                      padding:"10px 12px", fontWeight:700, color:"#1f2937",
+                      textAlign:"right", borderRight:"1px solid #e5e7eb",
+                      verticalAlign:"middle",
+                      background: si%2===0?"#fff":"#fffdf5"
+                    }}>
+                      {s.name}
+                      {s.items.length > 1 && (
+                        <div style={{fontSize:"10px", color:"#b45309", fontWeight:600, marginTop:"3px"}}>
+                          إجمالي: {fmt(s.price, 2)} ر.س
+                        </div>
+                      )}
+                    </td>
+                  ) : null}
+                  <td style={{padding:"8px 8px", color:"#374151", fontWeight:600, textAlign:"right", borderRight:"1px solid #e5e7eb", fontSize:"12px"}}>{item.itemName}</td>
+                  <td style={{padding:"8px 8px", textAlign:"center", color:"#374151"}}>{fmt(item.qty)}</td>
+                  <td style={{padding:"8px 8px", textAlign:"center", color:"#0369a1", fontWeight:600, borderRight:"1px solid #e5e7eb"}}>{item.weight > 0 ? fmt(item.weight, 2) : "—"}</td>
+                  <td style={{padding:"8px 8px", textAlign:"center", color:"#92400e", fontWeight:700}}>{fmt(item.price, 2)}</td>
+                </tr>
+              ))
             ))}
           </tbody>
           <tfoot>
             <tr style={{background:"#b45309", color:"#fff", fontWeight:700}}>
-              <td style={{padding:"10px 12px", fontWeight:800, textAlign:"right", borderRight:"1px solid rgba(255,255,255,0.2)"}}>الإجمالي</td>
-              <td style={{padding:"10px 8px", textAlign:"center"}}>{fmt(totalQty)}</td>
-              <td style={{padding:"10px 8px", textAlign:"center", fontWeight:800, borderRight:"1px solid rgba(255,255,255,0.2)"}}>{fmt(totalWeight, 2)} كجم</td>
-              <td style={{padding:"10px 8px", textAlign:"center", fontWeight:800, fontSize:"14px"}}>{fmt(totalPrice, 2)} ر</td>
+              <td colSpan={2} style={{padding:"10px 12px", fontWeight:800, textAlign:"right", borderRight:"1px solid rgba(255,255,255,0.2)"}}>الإجمالي</td>
+              <td style={{padding:"10px 8px", textAlign:"center"}}>{fmt(totalQtyAll)}</td>
+              <td style={{padding:"10px 8px", textAlign:"center", fontWeight:800, borderRight:"1px solid rgba(255,255,255,0.2)"}}>{fmt(totalWeightAll, 2)} كجم</td>
+              <td style={{padding:"10px 8px", textAlign:"center", fontWeight:800, fontSize:"14px"}}>{fmt(totalPriceAll, 2)} ر</td>
             </tr>
           </tfoot>
         </table>
