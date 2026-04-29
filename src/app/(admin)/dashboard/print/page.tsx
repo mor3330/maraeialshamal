@@ -532,6 +532,186 @@ function SalesReportPrint({ data }: { data: SalesData }) {
 }
 
 /* ══════════════════════════════════════════
+   Print: تقرير المشتريات
+══════════════════════════════════════════ */
+interface PurchaseRow {
+  id: string;
+  purchase_date: string;
+  quantity: number; weight: number; price: number;
+  branches?:    { id: string; name: string } | null;
+  suppliers?:   { id: string; name: string } | null;
+  item_types?:  { id: string; name: string; name_en: string } | null;
+}
+
+function PurchasesReportPrint({ data }: { data: PurchaseRow[] }) {
+  if (data.length === 0) {
+    return (
+      <div className="text-gray-900" dir="rtl">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-10 text-center">
+          <p className="text-amber-700 font-black text-xl mb-2">لا توجد مشتريات في هذه الفترة</p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── تجميعات ── */
+  const totalQty    = data.reduce((a, r) => a + toN(r.quantity), 0);
+  const totalWeight = data.reduce((a, r) => a + toN(r.weight),   0);
+  const totalPrice  = data.reduce((a, r) => a + toN(r.price),    0);
+
+  /* تجميع حسب الفرع */
+  const byBranch: Record<string, PurchaseRow[]> = {};
+  data.forEach(r => {
+    const key = r.branches?.id ?? "__none__";
+    if (!byBranch[key]) byBranch[key] = [];
+    byBranch[key].push(r);
+  });
+
+  /* تجميع حسب المورد */
+  const bySupplier: Record<string, { name: string; qty: number; weight: number; price: number }> = {};
+  data.forEach(r => {
+    const key  = r.suppliers?.id ?? "__none__";
+    const name = r.suppliers?.name ?? "بدون مورد";
+    if (!bySupplier[key]) bySupplier[key] = { name, qty: 0, weight: 0, price: 0 };
+    bySupplier[key].qty    += toN(r.quantity);
+    bySupplier[key].weight += toN(r.weight);
+    bySupplier[key].price  += toN(r.price);
+  });
+
+  return (
+    <div className="text-gray-900 font-[Readex_Pro,Tajawal,sans-serif]" dir="rtl">
+
+      {/* ── KPI ── */}
+      <div className="kpi-grid grid grid-cols-3 gap-4 mb-6">
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-center">
+          <p className="text-blue-600 text-xs font-medium mb-1">إجمالي العدد</p>
+          <p className="text-3xl font-black text-blue-700 ltr-num" dir="ltr">{fmt(totalQty)}</p>
+          <p className="text-blue-500 text-xs mt-1">رأس</p>
+        </div>
+        <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5 text-center">
+          <p className="text-sky-600 text-xs font-medium mb-1">إجمالي الوزن</p>
+          <p className="text-3xl font-black text-sky-700 ltr-num" dir="ltr">{fmt(totalWeight, 2)}</p>
+          <p className="text-sky-500 text-xs mt-1">كجم</p>
+        </div>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
+          <p className="text-amber-600 text-xs font-medium mb-1">إجمالي القيمة</p>
+          <p className="text-3xl font-black text-amber-700 ltr-num" dir="ltr">{fmt(totalPrice, 2)}</p>
+          <p className="text-amber-500 text-xs mt-1">ريال</p>
+        </div>
+      </div>
+
+      {/* ── ملخص الموردين ── */}
+      <div className="summary-block rounded-2xl border border-gray-200 overflow-hidden mb-6">
+        <div className="bg-amber-700 text-white px-5 py-3">
+          <h2 className="font-black text-sm">ملخص حسب المورد</h2>
+        </div>
+        <table style={{width:"100%", tableLayout:"fixed", fontSize:"13px", borderCollapse:"collapse"}} dir="ltr">
+          <colgroup>
+            <col style={{width:"40%"}}/><col style={{width:"20%"}}/><col style={{width:"20%"}}/><col style={{width:"20%"}}/>
+          </colgroup>
+          <thead>
+            <tr style={{background:"#fffbeb", borderBottom:"2px solid #fde68a", fontSize:"12px", fontWeight:700}}>
+              <th style={{padding:"10px 12px", textAlign:"right", borderRight:"1px solid #fde68a", color:"#92400e"}}>المورد</th>
+              <th style={{padding:"10px 8px", textAlign:"center", color:"#374151"}}>العدد</th>
+              <th style={{padding:"10px 8px", textAlign:"center", color:"#0369a1", borderRight:"1px solid #e5e7eb"}}>الوزن (كجم)</th>
+              <th style={{padding:"10px 8px", textAlign:"center", color:"#92400e"}}>الإجمالي (ريال)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.values(bySupplier).map((s, i) => (
+              <tr key={i} style={{borderBottom:"1px solid #f3f4f6", background: i%2===0?"#fff":"#fffdf5"}}>
+                <td style={{padding:"10px 12px", fontWeight:700, color:"#1f2937", textAlign:"right", borderRight:"1px solid #e5e7eb"}}>{s.name}</td>
+                <td style={{padding:"10px 8px", textAlign:"center", color:"#374151", fontWeight:600}}>{fmt(s.qty)}</td>
+                <td style={{padding:"10px 8px", textAlign:"center", color:"#0369a1", fontWeight:700, borderRight:"1px solid #e5e7eb"}}>{fmt(s.weight, 2)}</td>
+                <td style={{padding:"10px 8px", textAlign:"center", color:"#92400e", fontWeight:800, fontSize:"14px"}}>{fmt(s.price, 2)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{background:"#b45309", color:"#fff", fontWeight:700}}>
+              <td style={{padding:"10px 12px", fontWeight:800, textAlign:"right", borderRight:"1px solid rgba(255,255,255,0.2)"}}>الإجمالي</td>
+              <td style={{padding:"10px 8px", textAlign:"center"}}>{fmt(totalQty)}</td>
+              <td style={{padding:"10px 8px", textAlign:"center", fontWeight:800, borderRight:"1px solid rgba(255,255,255,0.2)"}}>{fmt(totalWeight, 2)} كجم</td>
+              <td style={{padding:"10px 8px", textAlign:"center", fontWeight:800, fontSize:"14px"}}>{fmt(totalPrice, 2)} ر</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* ── تفصيل حسب الفرع ── */}
+      {Object.entries(byBranch).map(([key, rows]) => {
+        const sample    = rows[0];
+        const branchName = sample?.branches?.name ?? "بدون فرع";
+        const bQty    = rows.reduce((a, r) => a + toN(r.quantity), 0);
+        const bWeight = rows.reduce((a, r) => a + toN(r.weight),   0);
+        const bPrice  = rows.reduce((a, r) => a + toN(r.price),    0);
+
+        return (
+          <div key={key} className="branch-block rounded-2xl border border-gray-200 overflow-hidden mb-4">
+            {/* رأس الفرع */}
+            <div className="branch-header flex items-center justify-between px-5 py-3 bg-[#1a2420] text-white" dir="rtl">
+              <span className="font-black text-base">{branchName}</span>
+              <span className="font-black text-amber-300 ltr-num" dir="ltr">{fmt(bPrice, 2)} ر.س</span>
+            </div>
+            {/* الجدول */}
+            <table style={{width:"100%", tableLayout:"fixed", fontSize:"13px", borderCollapse:"collapse"}} dir="ltr">
+              <colgroup>
+                <col style={{width:"12%"}}/><col style={{width:"22%"}}/><col style={{width:"22%"}}/>
+                <col style={{width:"15%"}}/><col style={{width:"15%"}}/><col style={{width:"14%"}}/>
+              </colgroup>
+              <thead>
+                <tr style={{background:"#f0f7f4", borderBottom:"2px solid #d1e9de", fontSize:"12px", fontWeight:700}}>
+                  <th style={{padding:"8px 10px", textAlign:"right", color:"#555", borderRight:"1px solid #e5e7eb"}}>التاريخ</th>
+                  <th style={{padding:"8px 10px", textAlign:"right", color:"#555", borderRight:"1px solid #e5e7eb"}}>المورد</th>
+                  <th style={{padding:"8px 10px", textAlign:"right", color:"#555", borderRight:"1px solid #e5e7eb"}}>الصنف</th>
+                  <th style={{padding:"8px 8px", textAlign:"center", color:"#0077cc", borderRight:"1px solid #e5e7eb"}}>العدد</th>
+                  <th style={{padding:"8px 8px", textAlign:"center", color:"#005f40", borderRight:"1px solid #e5e7eb"}}>الوزن (كجم)</th>
+                  <th style={{padding:"8px 8px", textAlign:"center", color:"#b45309"}}>السعر (ريال)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, idx) => (
+                  <tr key={r.id} style={{background: idx%2===0?"#fff":"#fafafa", borderBottom:"1px solid #eee"}}>
+                    <td style={{padding:"7px 10px", color:"#888", fontSize:"11px", borderRight:"1px solid #eee"}}>{r.purchase_date}</td>
+                    <td style={{padding:"7px 10px", color:"#555", borderRight:"1px solid #eee"}}>{r.suppliers?.name ?? "—"}</td>
+                    <td style={{padding:"7px 10px", fontWeight:600, color:"#1f2937", borderRight:"1px solid #eee"}}>{r.item_types?.name ?? "—"}</td>
+                    <td style={{padding:"7px 8px", textAlign:"center", color:"#0077cc", fontWeight:700, borderRight:"1px solid #eee"}}>{fmt(toN(r.quantity))}</td>
+                    <td style={{padding:"7px 8px", textAlign:"center", color:"#005f40", fontWeight:700, borderRight:"1px solid #eee"}}>{fmt(toN(r.weight), 2)}</td>
+                    <td style={{padding:"7px 8px", textAlign:"center", color:"#b45309", fontWeight:700}}>{fmt(toN(r.price), 2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{background:"#e8f5ee", borderTop:"2px solid #a8d5ba", fontWeight:800}}>
+                  <td colSpan={3} style={{padding:"8px 10px", color:"#1a3c2f", textAlign:"right"}}>إجمالي {branchName}</td>
+                  <td style={{padding:"8px 8px", textAlign:"center", color:"#0077cc"}}>{fmt(bQty)}</td>
+                  <td style={{padding:"8px 8px", textAlign:"center", color:"#005f40"}}>{fmt(bWeight, 2)}</td>
+                  <td style={{padding:"8px 8px", textAlign:"center", color:"#b45309"}}>{fmt(bPrice, 2)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        );
+      })}
+
+      {/* ── الإجمالي الكلي ── */}
+      <div className="summary-block rounded-2xl border border-gray-200 overflow-hidden">
+        <table style={{width:"100%", fontSize:"14px", borderCollapse:"collapse"}} dir="ltr">
+          <tfoot>
+            <tr style={{background:"#1a2420", color:"#fff", fontWeight:800}}>
+              <td style={{padding:"12px 16px", textAlign:"right"}}>الإجمالي الكلي — {data.length} سجل</td>
+              <td style={{padding:"12px 12px", textAlign:"center", color:"#93c5fd"}}>{fmt(totalQty)} رأس</td>
+              <td style={{padding:"12px 12px", textAlign:"center", color:"#86efac"}}>{fmt(totalWeight, 2)} كجم</td>
+              <td style={{padding:"12px 12px", textAlign:"center", color:"#fde68a"}}>{fmt(totalPrice, 2)} ر.س</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
    Print: تقرير المبيعات الخارجية
 ══════════════════════════════════════════ */
 interface ExtSale {
@@ -734,6 +914,7 @@ export default function PrintReportsPage() {
   const [profitData, setProfitData] = useState<ProfitData | null>(null);
   const [salesData, setSalesData] = useState<SalesData | null>(null);
   const [externalSalesData, setExternalSalesData] = useState<any[] | null>(null);
+  const [purchasesData, setPurchasesData] = useState<PurchaseRow[] | null>(null);
   const [error, setError] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -772,6 +953,20 @@ export default function PrintReportsPage() {
       if (!res.ok) { setError("تعذر تحميل البيانات"); return; }
       const json = await res.json();
       setSalesData(json);
+    } catch {
+      setError("تعذر الاتصال بالخادم");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadPurchasesData = useCallback(async (from: string, to: string) => {
+    setLoading(true); setError(""); setPurchasesData(null);
+    try {
+      const res = await fetch(`/api/purchases?dateFrom=${from}&dateTo=${to}`);
+      if (!res.ok) { setError("تعذر تحميل المشتريات"); return; }
+      const json = await res.json();
+      setPurchasesData(json.purchases ?? []);
     } catch {
       setError("تعذر الاتصال بالخادم");
     } finally {
@@ -880,6 +1075,7 @@ export default function PrintReportsPage() {
                 setStep(3);
                 if (selectedType === "profit")          loadProfitData(range.from, range.to);
                 if (selectedType === "sales")           loadSalesData(range.from, range.to);
+                if (selectedType === "purchases")       loadPurchasesData(range.from, range.to);
                 if (selectedType === "external-sales")  loadExternalSalesData(range.from, range.to);
               }}
                 className="rounded-2xl bg-green hover:bg-green-dark disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold px-8 py-3.5 text-sm transition-all hover:scale-[1.02]">
@@ -944,8 +1140,11 @@ export default function PrintReportsPage() {
                 {selectedType === "sales" && !salesData && !loading && (
                   <div className="text-center py-12 text-gray-400">لا توجد بيانات في هذه الفترة</div>
                 )}
-                {selectedType === "purchases" && (
-                  <div className="text-center py-12 text-gray-400">تقرير المشتريات — قريباً</div>
+                {selectedType === "purchases" && purchasesData && (
+                  <PurchasesReportPrint data={purchasesData} />
+                )}
+                {selectedType === "purchases" && !purchasesData && !loading && (
+                  <div className="text-center py-12 text-gray-400">لا توجد مشتريات في هذه الفترة</div>
                 )}
                 {selectedType === "external-sales" && externalSalesData && (
                   <ExternalSalesReportPrint data={externalSalesData} range={range} />

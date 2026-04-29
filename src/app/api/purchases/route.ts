@@ -9,10 +9,12 @@ export async function GET(request: Request) {
   const supabase = createServiceClient();
   const { searchParams } = new URL(request.url);
 
-  const branchId = searchParams.get("branchId");
-  const date = searchParams.get("date");
-  const supplierId = searchParams.get("supplierId");
-  const itemTypeId = searchParams.get("itemTypeId");
+  const branchId    = searchParams.get("branchId");
+  const date        = searchParams.get("date");
+  const dateFrom    = searchParams.get("dateFrom");
+  const dateTo      = searchParams.get("dateTo");
+  const supplierId  = searchParams.get("supplierId");
+  const itemTypeId  = searchParams.get("itemTypeId");
 
   let query = supabase
     .from("purchases")
@@ -22,15 +24,17 @@ export async function GET(request: Request) {
       suppliers:supplier_id(id, name),
       item_types:item_type_id(id, name, name_en)
     `)
-    .order("purchase_date", { ascending: false })
-    .order("created_at", { ascending: false });
+    .order("purchase_date", { ascending: true })
+    .order("created_at", { ascending: true });
 
-  if (branchId) query = query.eq("branch_id", branchId);
+  if (branchId)  query = query.eq("branch_id", branchId);
   if (date && date !== 'undefined') query = query.eq("purchase_date", date);
+  if (dateFrom)  query = query.gte("purchase_date", dateFrom);
+  if (dateTo)    query = query.lte("purchase_date", dateTo);
   if (supplierId) query = query.eq("supplier_id", supplierId);
   if (itemTypeId) query = query.eq("item_type_id", itemTypeId);
 
-  const { data, error } = await query.limit(500);
+  const { data, error } = await query.limit(2000);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
