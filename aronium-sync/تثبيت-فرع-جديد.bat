@@ -3,10 +3,18 @@ chcp 65001 > nul
 title تثبيت مزامنة مراعي الشمال - فرع جديد
 color 0B
 
+REM ── رفع الصلاحيات تلقائياً (Admin) ──────────────────────
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [*] يحتاج صلاحيات Administrator - جاري الرفع التلقائي...
+    powershell -Command "Start-Process cmd -ArgumentList '/c \"%~f0\"' -Verb RunAs" 2>nul
+    exit /b
+)
+
 echo.
 echo ╔══════════════════════════════════════════════════╗
 echo ║     تثبيت نظام مزامنة مراعي الشمال              ║
-echo ║     فرع جديد - خطوتين فقط!                      ║
+echo ║     فرع جديد - خطوات بسيطة!                     ║
 echo ╚══════════════════════════════════════════════════╝
 echo.
 
@@ -90,17 +98,21 @@ echo [✓] تم إنشاء run_silent.vbs
 REM ── إضافة مهمة جدولة (Task Scheduler) ────────────────
 echo.
 echo [*] جاري إضافة مهمة التشغيل التلقائي...
-echo     (قد تظهر نافذة UAC - اضغط نعم)
 echo.
 
 powershell -Command "& { $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument '\"C:\AroniumSync\run_silent.vbs\"'; $trigger = New-ScheduledTaskTrigger -AtStartup; $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -RunOnlyIfNetworkAvailable:$false -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 0) -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1); $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest; $task = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'مزامنة مراعي الشمال'; Register-ScheduledTask -TaskName 'AroniumSync-MaraeiAlShimal' -InputObject $task -Force | Out-Null; Write-Host 'تم!' }"
 
-echo [✓] تم إضافة مهمة التشغيل التلقائي
+if errorlevel 1 (
+    echo [!] تعذّر إضافة المهمة التلقائية - لكن المزامنة ستعمل الآن
+) else (
+    echo [✓] تم إضافة مهمة التشغيل التلقائي
+)
 
-REM ── تشغيل فوري ───────────────────────────────────────
+REM ── إيقاف أي نسخة قديمة وتشغيل جديد ────────────────
 echo.
 echo [*] جاري التشغيل الآن...
 taskkill /F /IM python.exe > nul 2>&1
+timeout /t 2 /nobreak > nul
 start "" "wscript.exe" "C:\AroniumSync\run_silent.vbs"
 
 timeout /t 5 /nobreak > nul
@@ -108,7 +120,7 @@ timeout /t 5 /nobreak > nul
 REM ── التحقق من النجاح ──────────────────────────────────
 tasklist /FI "IMAGENAME eq python.exe" 2>nul | find /I "python.exe" > nul
 if errorlevel 1 (
-    echo [!] قد يحتاج بضع ثوانٍ ليبدأ Python
+    echo [!] Python لم يبدأ بعد - جربه يدوياً: python C:\AroniumSync\sync.py
 ) else (
     echo [✓] Python يعمل في الخلفية!
 )
