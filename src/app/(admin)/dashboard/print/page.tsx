@@ -559,6 +559,26 @@ function PurchasesReportPrint({ data }: { data: PurchaseRow[] }) {
   const totalWeight = data.reduce((a, r) => a + toN(r.weight),   0);
   const totalPrice  = data.reduce((a, r) => a + toN(r.price),    0);
 
+  /* تجميع حسب نوع الحيوان */
+  const animalTypes = [
+    { key: "hashi", label: "🐄 حاشي",   nameAr: ["حاشي", "ماشية", "بقر"], nameEn: ["hashi", "cattle", "cow"] },
+    { key: "sheep", label: "🐑 غنم",    nameAr: ["غنم", "خروف", "ضأن"],  nameEn: ["sheep", "lamb"]           },
+    { key: "beef",  label: "🐂 عجل",    nameAr: ["عجل", "تلو"],          nameEn: ["beef", "veal", "calf"]    },
+  ];
+  const matchAnimal = (r: PurchaseRow, nameArList: string[], nameEnList: string[]) => {
+    const nameAr = (r.item_types?.name ?? "").toLowerCase();
+    const nameEn = (r.item_types?.name_en ?? "").toLowerCase();
+    return nameArList.some(n => nameAr.includes(n)) || nameEnList.some(n => nameEn.includes(n));
+  };
+  const byAnimal: Record<string, { qty: number; weight: number }> = {};
+  animalTypes.forEach(at => {
+    const rows = data.filter(r => matchAnimal(r, at.nameAr, at.nameEn));
+    byAnimal[at.key] = {
+      qty:    rows.reduce((a, r) => a + toN(r.quantity), 0),
+      weight: rows.reduce((a, r) => a + toN(r.weight),   0),
+    };
+  });
+
   /* تجميع حسب الفرع */
   const byBranch: Record<string, PurchaseRow[]> = {};
   data.forEach(r => {
@@ -583,21 +603,44 @@ function PurchasesReportPrint({ data }: { data: PurchaseRow[] }) {
 
       {/* ── KPI ── */}
       <div className="kpi-grid grid grid-cols-3 gap-4 mb-6">
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-center">
-          <p className="text-blue-600 text-xs font-medium mb-1">إجمالي العدد</p>
-          <p className="text-3xl font-black text-blue-700 ltr-num" dir="ltr">{fmt(totalQty)}</p>
-          <p className="text-blue-500 text-xs mt-1">رأس</p>
+
+        {/* إجمالي العدد مع تفصيل */}
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <p className="text-blue-600 text-xs font-medium mb-1 text-center">إجمالي العدد</p>
+          <p className="text-3xl font-black text-blue-700 ltr-num text-center" dir="ltr">{fmt(totalQty)}</p>
+          <p className="text-blue-500 text-xs text-center mt-1">رأس</p>
+          <div className="border-t border-blue-200 mt-3 pt-2 space-y-1">
+            {animalTypes.map(at => byAnimal[at.key].qty > 0 && (
+              <div key={at.key} className="flex justify-between text-xs">
+                <span className="text-blue-500">{at.label}</span>
+                <span className="text-blue-700 font-bold ltr-num" dir="ltr">{fmt(byAnimal[at.key].qty)} رأس</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5 text-center">
-          <p className="text-sky-600 text-xs font-medium mb-1">إجمالي الوزن</p>
-          <p className="text-3xl font-black text-sky-700 ltr-num" dir="ltr">{fmt(totalWeight, 2)}</p>
-          <p className="text-sky-500 text-xs mt-1">كجم</p>
+
+        {/* إجمالي الوزن مع تفصيل */}
+        <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+          <p className="text-sky-600 text-xs font-medium mb-1 text-center">إجمالي الوزن</p>
+          <p className="text-3xl font-black text-sky-700 ltr-num text-center" dir="ltr">{fmt(totalWeight, 2)}</p>
+          <p className="text-sky-500 text-xs text-center mt-1">كجم</p>
+          <div className="border-t border-sky-200 mt-3 pt-2 space-y-1">
+            {animalTypes.map(at => byAnimal[at.key].weight > 0 && (
+              <div key={at.key} className="flex justify-between text-xs">
+                <span className="text-sky-500">{at.label}</span>
+                <span className="text-sky-700 font-bold ltr-num" dir="ltr">{fmt(byAnimal[at.key].weight, 2)} كجم</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
+
+        {/* إجمالي القيمة */}
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center">
           <p className="text-amber-600 text-xs font-medium mb-1">إجمالي القيمة</p>
           <p className="text-3xl font-black text-amber-700 ltr-num" dir="ltr">{fmt(totalPrice, 2)}</p>
           <p className="text-amber-500 text-xs mt-1">ريال</p>
         </div>
+
       </div>
 
       {/* ── ملخص الموردين ── */}
