@@ -1,9 +1,10 @@
 import ReportDetailsClient from "@/components/cashier/ReportDetailsClient";
 
-export default function ReportDetailsPage({ 
+export default async function ReportDetailsPage({ 
   params 
 }: { 
-  params: { slug: string; reportId: string } 
+  params: Promise<{ slug: string; reportId: string }>
 }) {
-  return <ReportDetailsClient slug={params.slug} reportId={params.reportId} />;
+  const { slug, reportId } = await params;
+  return <ReportDetailsClient slug={slug} reportId={reportId} />;
 }

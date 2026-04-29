@@ -1,6 +1,7 @@
 // الخطوة 7 أصبحت الخطوة 6 - تحويل تلقائي
 import { redirect } from "next/navigation";
 
-export default function Step7Page({ params }: { params: { slug: string } }) {
-  redirect(`/branch/${params.slug}/report/step-6`);
+export default async function Step7Page({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  redirect(`/branch/${slug}/report/step-6`);
 }

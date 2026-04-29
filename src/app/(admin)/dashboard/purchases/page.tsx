@@ -146,7 +146,7 @@ export default function PurchasesPage() {
               supplier_id: item.supplier_id,
               purchase_date: targetDate,
               item_type_id: item.item_type_id,
-              quantity: parseInt(item.quantity),
+              quantity: parseFloat(item.quantity),
               weight: parseFloat(item.weight),
               price: parseFloat(item.price),
               notes: notes || null,
@@ -199,7 +199,7 @@ export default function PurchasesPage() {
         body: JSON.stringify({
           supplier_id: editItem.supplier_id || null,
           item_type_id: editItem.item_type_id,
-          quantity: parseInt(editItem.quantity),
+          quantity: parseFloat(editItem.quantity),
           weight: parseFloat(editItem.weight),
           price: parseFloat(editItem.price),
         }),

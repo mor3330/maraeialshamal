@@ -2,147 +2,159 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
+interface Buyer    { id: string; name: string; phone?: string; }
 interface Supplier { id: string; name: string; }
-interface Branch   { id: string; name: string; }
+interface ItemType { id: string; name: string; }
 interface Sale {
   id: string;
-  branch_id: string;
-  supplier_id: string | null;
+  buyer_id:     string | null;
+  supplier_id:  string | null;
   item_type_id: string;
-  quantity: number;
-  weight: number;
-  price: number;
-  suppliers?:  { name: string };
-  item_types?: { id: string; name: string; name_en: string };
+  quantity:     number;
+  weight:       number;
+  price:        number;
+  sale_date:    string;
+  notes?:       string;
+  buyers?:      { name: string; phone?: string };
+  suppliers?:   { name: string };
+  item_types?:  { name: string };
 }
-interface SaleItem {
-  supplier_id: string;
+
+interface SaleRow {
+  buyer_id:     string;
+  supplier_id:  string;
   item_type_id: string;
-  quantity: string;
-  weight: string;
-  price: string;
+  quantity:     string;
+  weight:       string;
+  price:        string;
 }
-interface ItemType { id: string; name: string; }
 
 const toN = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
-const fmt = (v: number)  => v.toLocaleString("ar-SA-u-nu-latn", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const emptyItem = (): SaleItem => ({ supplier_id: "", item_type_id: "", quantity: "", weight: "", price: "" });
+const fmt = (v: number) => v.toLocaleString("ar-SA-u-nu-latn", { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+
+const todayStr = () => {
+  const d = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+const emptyRow = (): SaleRow => ({ buyer_id: "", supplier_id: "", item_type_id: "", quantity: "", weight: "", price: "" });
 
 export default function ExternalSalesPage() {
   const router = useRouter();
+  const [buyers,     setBuyers]     = useState<Buyer[]>([]);
   const [suppliers,  setSuppliers]  = useState<Supplier[]>([]);
-  const [branches,   setBranches]   = useState<Branch[]>([]);
-  const [sales,      setSales]      = useState<Sale[]>([]);
   const [itemTypes,  setItemTypes]  = useState<ItemType[]>([]);
-  const [prices,     setPrices]     = useState<any[]>([]);
+  const [sales,      setSales]      = useState<Sale[]>([]);
   const [loading,    setLoading]    = useState(true);
-  const [showAddModal,  setShowAddModal]  = useState(false);
-  const [saving,        setSaving]        = useState(false);
-  const [editSale,      setEditSale]      = useState<Sale | null>(null);
-  const [editItem,      setEditItem]      = useState<SaleItem>(emptyItem());
-  const [targetDate,    setTargetDate]    = useState("");
+  const [saving,     setSaving]     = useState(false);
+
+  const [targetDate, setTargetDate] = useState(todayStr());
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [selectedBranch, setSelectedBranch] = useState("");
-  const [items,  setItems]  = useState<SaleItem[]>([emptyItem()]);
-  const [notes,  setNotes]  = useState("");
+
+  // Modal إضافة
+  const [showAdd, setShowAdd]   = useState(false);
+  const [rows, setRows]         = useState<SaleRow[]>([emptyRow()]);
+  const [addNotes, setAddNotes] = useState("");
+
+  // Modal تعديل
+  const [editSale, setEditSale]   = useState<Sale | null>(null);
+  const [editRow, setEditRow]     = useState<SaleRow>(emptyRow());
+
+  // فلتر عرض
+  const [filterBuyer, setFilterBuyer] = useState("");
 
   useEffect(() => {
-    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const d = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
-    setTargetDate(d);
-    loadData(d);
+    loadAll(targetDate);
   }, []);
 
-  async function loadData(date: string) {
+  async function loadAll(date: string) {
     setLoading(true);
     try {
-      const [suppRes, branchRes, salesRes, typesRes, pricesRes] = await Promise.all([
+      const [buyRes, suppRes, typesRes, salesRes] = await Promise.all([
+        fetch("/api/buyers"),
         fetch("/api/suppliers"),
-        fetch("/api/admin/branches"),
-        fetch(`/api/external-sales?date=${date}`),
         fetch("/api/item-types"),
-        fetch("/api/supplier-prices"),
+        fetch(`/api/external-sales?date=${date}`),
       ]);
-      const [suppData, branchData, salesData, typesData, pricesData] = await Promise.all([
-        suppRes.json(), branchRes.json(), salesRes.json(), typesRes.json(), pricesRes.json(),
+      const [buyData, suppData, typesData, salesData] = await Promise.all([
+        buyRes.json(), suppRes.json(), typesRes.json(), salesRes.json(),
       ]);
-      setSuppliers(suppData.suppliers     || []);
-      setBranches(branchData.branches     || []);
-      setSales(salesData.sales            || []);
-      setItemTypes(typesData.itemTypes    || []);
-      setPrices(pricesData.prices         || []);
+      setBuyers(buyData.buyers     || []);
+      setSuppliers(suppData.suppliers || []);
+      setItemTypes(typesData.itemTypes || []);
+      setSales(salesData.sales     || []);
     } finally {
       setLoading(false);
     }
   }
 
-  function addItem()                            { if (items.length < 10) setItems([...items, emptyItem()]); }
-  function removeItem(i: number)                { setItems(items.filter((_, idx) => idx !== i)); }
+  function handleDateChange(d: string) {
+    setTargetDate(d);
+    setShowDatePicker(false);
+    loadAll(d);
+  }
 
-  function updateItem(index: number, field: keyof SaleItem, value: string) {
-    const updated = [...items];
-    updated[index][field] = value;
-    if (["supplier_id", "item_type_id", "quantity", "weight"].includes(field)) {
-      const it = updated[index];
-      if (it.supplier_id && it.item_type_id) {
-        const p = prices.find(p => p.supplier_id === it.supplier_id && p.item_type_id === it.item_type_id);
-        if (p) {
-          const ppu = toN(p.price_per_unit);
-          const m   = p.pricing_method || "quantity";
-          if (m === "quantity" && it.quantity) updated[index].price = (ppu * toN(it.quantity)).toFixed(2);
-          else if (m === "weight" && it.weight) updated[index].price = (ppu * toN(it.weight)).toFixed(2);
-        }
-      }
-    }
-    setItems(updated);
+  // ── صفوف الإضافة ──
+  function addRow()               { if (rows.length < 15) setRows([...rows, emptyRow()]); }
+  function removeRow(i: number)   { setRows(rows.filter((_, idx) => idx !== i)); }
+  function updateRow(i: number, field: keyof SaleRow, val: string) {
+    const updated = [...rows];
+    updated[i][field] = val;
+    setRows(updated);
   }
 
   async function handleSubmit() {
-    if (!selectedBranch) { alert("الرجاء اختيار الفرع"); return; }
-    const valid = items.filter(it => it.item_type_id && it.quantity && it.weight && it.price);
-    if (!valid.length) { alert("الرجاء تعبئة صنف واحد على الأقل"); return; }
+    const valid = rows.filter(r => r.item_type_id && r.quantity && r.weight && r.price);
+    if (!valid.length) { alert("عبّئ صنف واحد على الأقل (الصنف + العدد + الوزن + السعر)"); return; }
     setSaving(true);
     try {
-      const results = await Promise.all(valid.map(it =>
+      const results = await Promise.all(valid.map(r =>
         fetch("/api/external-sales", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            branch_id:   selectedBranch,
-            supplier_id: it.supplier_id || null,
+            buyer_id:    r.buyer_id    || null,
+            supplier_id: r.supplier_id || null,
+            item_type_id: r.item_type_id,
             sale_date:   targetDate,
-            item_type_id: it.item_type_id,
-            quantity:    parseInt(it.quantity),
-            weight:      parseFloat(it.weight),
-            price:       parseFloat(it.price),
-            notes:       notes || null,
+            quantity:    parseFloat(r.quantity),
+            weight:      parseFloat(r.weight),
+            price:       parseFloat(r.price),
+            notes:       addNotes || null,
           }),
         })
       ));
       for (const res of results) {
         if (!res.ok) { const e = await res.json(); throw new Error(e.error || "فشل الحفظ"); }
       }
-      setShowAddModal(false);
-      setSelectedBranch(""); setItems([emptyItem()]); setNotes("");
-      loadData(targetDate);
+      setShowAdd(false);
+      setRows([emptyRow()]);
+      setAddNotes("");
+      loadAll(targetDate);
     } catch (err: any) {
       alert(err.message || "حدث خطأ");
     } finally { setSaving(false); }
   }
 
+  // ── التعديل ──
   function openEdit(s: Sale) {
     setEditSale(s);
-    setEditItem({ supplier_id: s.supplier_id || "", item_type_id: s.item_type_id,
-                  quantity: String(s.quantity), weight: String(s.weight), price: String(s.price) });
+    setEditRow({
+      buyer_id:     s.buyer_id    || "",
+      supplier_id:  s.supplier_id || "",
+      item_type_id: s.item_type_id,
+      quantity:     String(s.quantity),
+      weight:       String(s.weight),
+      price:        String(s.price),
+    });
   }
 
   async function handleEditSave() {
     if (!editSale) return;
-    if (!editItem.item_type_id || !editItem.quantity || !editItem.weight || !editItem.price) {
-      alert("الرجاء تعبئة جميع الحقول"); return;
+    if (!editRow.item_type_id || !editRow.quantity || !editRow.weight || !editRow.price) {
+      alert("عبّئ جميع الحقول"); return;
     }
     setSaving(true);
     try {
@@ -150,173 +162,213 @@ export default function ExternalSalesPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          supplier_id:  editItem.supplier_id || null,
-          item_type_id: editItem.item_type_id,
-          quantity:  parseInt(editItem.quantity),
-          weight:    parseFloat(editItem.weight),
-          price:     parseFloat(editItem.price),
+          buyer_id:    editRow.buyer_id    || null,
+          supplier_id: editRow.supplier_id || null,
+          item_type_id: editRow.item_type_id,
+          quantity:    parseFloat(editRow.quantity),
+          weight:      parseFloat(editRow.weight),
+          price:       parseFloat(editRow.price),
         }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "فشل التعديل"); }
       setEditSale(null);
-      loadData(targetDate);
+      loadAll(targetDate);
     } catch (err: any) {
-      alert(err.message || "حدث خطأ");
+      alert(err.message);
     } finally { setSaving(false); }
   }
 
   async function handleDelete(id: string) {
     if (!confirm("هل أنت متأكد من الحذف؟")) return;
-    try {
-      const res = await fetch(`/api/external-sales?id=${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("فشل الحذف");
-      loadData(targetDate);
-    } catch (err: any) { alert(err.message || "حدث خطأ"); }
+    const res = await fetch(`/api/external-sales?id=${id}`, { method: "DELETE" });
+    if (!res.ok) { alert("فشل الحذف"); return; }
+    loadAll(targetDate);
   }
 
-  function handleDateChange(d: string) { setTargetDate(d); setShowDatePicker(false); loadData(d); }
-
-  const salesByBranch: Record<string, Sale[]> = {};
-  sales.forEach(s => {
-    const bid = (s as any).branch_id;
-    if (!salesByBranch[bid]) salesByBranch[bid] = [];
-    salesByBranch[bid].push(s);
-  });
-
+  // إحصائيات
+  const displayed = filterBuyer ? sales.filter(s => s.buyer_id === filterBuyer) : sales;
   const stats = {
-    total:       sales.length,
-    totalWeight: sales.reduce((s, p) => s + toN(p.weight), 0),
-    totalPrice:  sales.reduce((s, p) => s + toN(p.price),  0),
+    count:  displayed.length,
+    weight: displayed.reduce((a, s) => a + toN(s.weight),   0),
+    price:  displayed.reduce((a, s) => a + toN(s.price),    0),
+    qty:    displayed.reduce((a, s) => a + toN(s.quantity),  0),
   };
 
-  let targetDateFormatted = "...";
-  try {
-    targetDateFormatted = new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
-      weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Riyadh",
-    }).format(new Date(targetDate + "T12:00:00"));
-  } catch { targetDateFormatted = targetDate; }
+  // تجميع حسب المشترٍ
+  const byBuyer: Record<string, Sale[]> = {};
+  displayed.forEach(s => {
+    const key = s.buyer_id || "__none__";
+    if (!byBuyer[key]) byBuyer[key] = [];
+    byBuyer[key].push(s);
+  });
+
+  const fmtDate = (d: string) => {
+    try { return new Intl.DateTimeFormat("ar-SA-u-nu-latn", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Riyadh" }).format(new Date(d + "T12:00:00")); }
+    catch { return d; }
+  };
+
+  const inputCls = "w-full rounded-xl bg-bg border border-line px-3 py-2.5 text-cream text-sm focus:outline-none focus:border-green/50";
+  const selectCls = inputCls;
 
   return (
-    <div className="min-h-screen bg-bg text-cream p-6">
-      <div className="max-w-7xl mx-auto mb-8">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-4">
+    <div className="min-h-screen bg-bg text-cream p-6" dir="rtl">
+      <div className="max-w-7xl mx-auto space-y-6">
+
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-4xl font-black mb-2">المبيعات الخارجية</h1>
-            <p className="text-muted">إدارة المبيعات الخارجية اليومية لكل الفروع</p>
+            <h1 className="text-3xl font-black text-cream">المبيعات الخارجية</h1>
+            <p className="text-muted text-sm mt-1">مبيعات لأشخاص وشركات خارج الفروع</p>
           </div>
           <div className="flex gap-3 flex-wrap">
-            <button onClick={() => router.push("/dashboard/prices")}
-              className="rounded-2xl bg-amber-500 hover:bg-amber-600 px-6 py-3 font-bold text-white">
-              الأسعار
-            </button>
-            <button onClick={() => router.push("/dashboard/item-types")}
-              className="rounded-2xl bg-blue-500 hover:bg-blue-600 px-6 py-3 font-bold text-white">
-              الأصناف
+            <button onClick={() => router.push("/dashboard/buyers")}
+              className="rounded-2xl bg-green/10 border border-green/30 hover:bg-green/20 px-5 py-2.5 font-bold text-green text-sm transition-all">
+              🤝 المشترون
             </button>
             <button onClick={() => router.push("/dashboard/suppliers")}
-              className="rounded-2xl bg-purple-500 hover:bg-purple-600 px-6 py-3 font-bold text-white">
-              الموردين
+              className="rounded-2xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 px-5 py-2.5 font-bold text-purple-400 text-sm transition-all">
+              🏭 الموردون
             </button>
-            <button onClick={() => setShowAddModal(true)}
-              className="rounded-2xl bg-green hover:bg-green-dark px-6 py-3 font-bold text-white">
+            <button onClick={() => router.push("/dashboard/item-types")}
+              className="rounded-2xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 px-5 py-2.5 font-bold text-blue-400 text-sm transition-all">
+              🏷 الأصناف
+            </button>
+            <Link
+              href={`/dashboard/external-sales/print?date=${targetDate}`}
+              target="_blank"
+              className="rounded-2xl bg-amber/10 border border-amber/30 hover:bg-amber/20 px-5 py-2.5 font-bold text-amber text-sm transition-all flex items-center gap-2">
+              🖨️ طباعة التقرير
+            </Link>
+            <button
+              onClick={() => { setRows([emptyRow()]); setAddNotes(""); setShowAdd(true); }}
+              className="rounded-2xl bg-green hover:bg-green-dark px-6 py-2.5 font-bold text-white transition-all">
               + إضافة بيع جديد
             </button>
           </div>
         </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto">
-        {/* التاريخ */}
-        <div className="bg-card rounded-3xl border border-line p-6 mb-6">
-          <div className="flex items-center justify-between">
+        {/* ── اليوم ── */}
+        <div className="bg-card border border-line rounded-2xl p-5">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
-              <p className="text-muted text-sm mb-1">مبيعات يوم</p>
-              <p className="text-cream text-2xl font-bold">{targetDateFormatted}</p>
+              <p className="text-muted text-xs mb-1">عرض مبيعات يوم</p>
+              <p className="text-cream font-bold text-lg">{fmtDate(targetDate)}</p>
             </div>
-            <button onClick={() => setShowDatePicker(!showDatePicker)}
-              className="rounded-2xl bg-card-hi border border-line px-6 py-3 font-bold text-cream hover:bg-bg">
-              العودة لتواريخ أقدم
+            <button onClick={() => setShowDatePicker(v => !v)}
+              className="rounded-xl bg-card-hi border border-line px-5 py-2.5 text-sm font-medium text-cream hover:bg-bg transition-all">
+              تغيير التاريخ
             </button>
           </div>
           {showDatePicker && (
             <div className="mt-4 pt-4 border-t border-line">
               <input type="date" value={targetDate}
                 onChange={e => handleDateChange(e.target.value)}
-                className="rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50"
-              />
+                className={inputCls + " w-auto"} />
             </div>
           )}
         </div>
 
-        {/* الإحصائيات */}
-        <div className="grid gap-4 md:grid-cols-3 mb-6">
-          <div className="rounded-3xl border border-line bg-card p-6">
-            <p className="text-muted text-sm mb-2">إجمالي السجلات</p>
-            <p className="text-4xl font-black text-green">{stats.total}</p>
-          </div>
-          <div className="rounded-3xl border border-line bg-card p-6">
-            <p className="text-muted text-sm mb-2">إجمالي الوزن</p>
-            <p className="text-4xl font-black text-blue-500 ltr-num" dir="ltr">{fmt(stats.totalWeight)} <span className="text-lg">كجم</span></p>
-          </div>
-          <div className="rounded-3xl border border-line bg-card p-6">
-            <p className="text-muted text-sm mb-2">إجمالي السعر</p>
-            <p className="text-4xl font-black text-amber-500 ltr-num" dir="ltr">{fmt(stats.totalPrice)} <span className="text-lg">ر</span></p>
-          </div>
+        {/* ── الإحصائيات ── */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: "عدد السجلات",  val: stats.count,  unit: "",    cls: "text-green"       },
+            { label: "إجمالي العدد", val: stats.qty,    unit: "رأس", cls: "text-sky-400"     },
+            { label: "إجمالي الوزن", val: stats.weight, unit: "كجم", cls: "text-blue-400"    },
+            { label: "إجمالي القيمة",val: stats.price,  unit: "ر.س", cls: "text-amber"       },
+          ].map(s => (
+            <div key={s.label} className="bg-card border border-line rounded-2xl p-5 text-center">
+              <p className="text-muted text-xs mb-2">{s.label}</p>
+              <p className={`font-black text-2xl ltr-num ${s.cls}`} dir="ltr">
+                {fmt(s.val)} <span className="text-sm font-normal text-muted">{s.unit}</span>
+              </p>
+            </div>
+          ))}
         </div>
 
-        {/* قائمة المبيعات */}
-        <div className="rounded-[28px] border border-line bg-card p-6">
-          <h2 className="text-xl font-bold mb-4">قائمة المبيعات الخارجية</h2>
+        {/* ── فلتر المشترٍ ── */}
+        {buyers.length > 0 && (
+          <div className="flex gap-2 flex-wrap items-center">
+            <span className="text-muted text-sm">تصفية:</span>
+            <button onClick={() => setFilterBuyer("")}
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${!filterBuyer ? "bg-green text-white" : "bg-card border border-line text-muted hover:text-cream"}`}>
+              الكل
+            </button>
+            {buyers.map(b => (
+              <button key={b.id} onClick={() => setFilterBuyer(b.id)}
+                className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${filterBuyer === b.id ? "bg-green text-white" : "bg-card border border-line text-muted hover:text-cream"}`}>
+                {b.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ── قائمة المبيعات ── */}
+        <div className="bg-card border border-line rounded-2xl overflow-hidden">
           {loading ? (
-            <div className="text-center py-12">
-              <div className="w-8 h-8 rounded-full border-2 border-green border-t-transparent animate-spin mx-auto mb-3" />
+            <div className="py-16 text-center">
+              <div className="w-8 h-8 border-2 border-green border-t-transparent rounded-full animate-spin mx-auto mb-3" />
               <p className="text-muted">جاري التحميل...</p>
             </div>
-          ) : Object.keys(salesByBranch).length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-muted text-lg mb-4">لا توجد مبيعات خارجية لهذا اليوم</p>
-              <button onClick={() => setShowAddModal(true)}
+          ) : Object.keys(byBuyer).length === 0 ? (
+            <div className="py-16 text-center">
+              <p className="text-4xl mb-3">📦</p>
+              <p className="text-muted mb-4">لا توجد مبيعات خارجية لهذا اليوم</p>
+              <button onClick={() => { setRows([emptyRow()]); setAddNotes(""); setShowAdd(true); }}
                 className="rounded-2xl bg-green hover:bg-green-dark px-6 py-3 font-bold text-white">
-                + إضافة أول سجل
+                + إضافة أول بيع
               </button>
             </div>
           ) : (
-            <div className="space-y-6">
-              {Object.entries(salesByBranch).map(([branchId, branchSales]) => {
-                const branch     = branches.find(b => b.id === branchId);
-                const branchTotal = branchSales.reduce((s, p) => s + toN(p.price), 0);
+            <div className="divide-y divide-line">
+              {Object.entries(byBuyer).map(([key, bSales]) => {
+                const buyer = key === "__none__" ? null : buyers.find(b => b.id === key);
+                const total = bSales.reduce((a, s) => a + toN(s.price), 0);
                 return (
-                  <div key={branchId} className="bg-card-hi rounded-2xl border border-line overflow-hidden">
-                    <div className="bg-bg px-4 py-3 border-b border-line flex items-center justify-between">
-                      <h3 className="text-cream font-bold text-lg">{branch?.name || "فرع"}</h3>
-                      <p className="text-green font-bold">{fmt(branchTotal)} ر</p>
+                  <div key={key}>
+                    {/* رأس المشترٍ */}
+                    <div className="bg-card-hi px-5 py-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-green/20 flex items-center justify-center text-green font-black text-sm flex-shrink-0">
+                          {buyer ? buyer.name[0] : "؟"}
+                        </div>
+                        <div>
+                          <p className="text-cream font-bold text-sm">{buyer?.name || "بدون مشترٍ"}</p>
+                          {buyer?.phone && <p className="text-muted text-xs ltr-num" dir="ltr">{buyer.phone}</p>}
+                        </div>
+                      </div>
+                      <p className="text-green font-black ltr-num" dir="ltr">{fmt(total)} ر.س</p>
                     </div>
-                    <div className="p-4">
-                      <table className="w-full">
+                    {/* صفوف */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
                         <thead>
-                          <tr className="border-b border-line text-muted text-sm">
-                            <th className="p-2 text-right">المورد</th>
-                            <th className="p-2 text-right">الصنف</th>
-                            <th className="p-2 text-right">العدد</th>
-                            <th className="p-2 text-right">الوزن</th>
-                            <th className="p-2 text-right">السعر</th>
-                            <th className="p-2 text-center">إجراءات</th>
+                          <tr className="border-b border-line/50 text-xs text-muted">
+                            <th className="px-4 py-2 text-right">المورد</th>
+                            <th className="px-4 py-2 text-right">الصنف</th>
+                            <th className="px-4 py-2 text-center">العدد</th>
+                            <th className="px-4 py-2 text-center">الوزن (كجم)</th>
+                            <th className="px-4 py-2 text-center">السعر (ر.س)</th>
+                            <th className="px-4 py-2 text-center">إجراءات</th>
                           </tr>
                         </thead>
-                        <tbody>
-                          {branchSales.map(s => (
-                            <tr key={s.id} className="border-b border-line/50">
-                              <td className="p-2 text-sm">{s.suppliers?.name  || "-"}</td>
-                              <td className="p-2 font-medium">{s.item_types?.name || "-"}</td>
-                              <td className="p-2 font-bold ltr-num" dir="ltr">{s.quantity}</td>
-                              <td className="p-2 font-bold ltr-num" dir="ltr">{fmt(s.weight)} <span className="text-xs text-muted">كجم</span></td>
-                              <td className="p-2 font-bold ltr-num" dir="ltr">{fmt(s.price)} <span className="text-xs text-muted">ر</span></td>
-                              <td className="p-2">
+                        <tbody className="divide-y divide-line/30">
+                          {bSales.map(s => (
+                            <tr key={s.id} className="hover:bg-card-hi/40 transition-colors">
+                              <td className="px-4 py-3 text-muted">{s.suppliers?.name || "—"}</td>
+                              <td className="px-4 py-3 font-medium text-cream">{s.item_types?.name || "—"}</td>
+                              <td className="px-4 py-3 text-center ltr-num font-bold" dir="ltr">{fmt(s.quantity)}</td>
+                              <td className="px-4 py-3 text-center ltr-num text-blue-400 font-bold" dir="ltr">{fmt(s.weight)}</td>
+                              <td className="px-4 py-3 text-center ltr-num text-amber font-bold" dir="ltr">{fmt(s.price)}</td>
+                              <td className="px-4 py-3">
                                 <div className="flex gap-2 justify-center">
                                   <button onClick={() => openEdit(s)}
-                                    className="rounded-lg bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1 text-blue-400 text-sm">تعديل</button>
+                                    className="rounded-lg bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1 text-blue-400 text-xs transition-colors">
+                                    تعديل
+                                  </button>
                                   <button onClick={() => handleDelete(s.id)}
-                                    className="rounded-lg bg-red/10 hover:bg-red/20 px-3 py-1 text-red text-sm">حذف</button>
+                                    className="rounded-lg bg-red/10 hover:bg-red/20 px-3 py-1 text-red text-xs transition-colors">
+                                    حذف
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -332,134 +384,169 @@ export default function ExternalSalesPage() {
         </div>
       </div>
 
-      {/* Modal التعديل */}
-      {editSale && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-card border border-line rounded-3xl p-6 w-full max-w-lg">
-            <h2 className="text-xl font-bold mb-5">تعديل سجل البيع</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm text-muted block mb-1">المورد</label>
-                <select value={editItem.supplier_id}
-                  onChange={e => setEditItem({ ...editItem, supplier_id: e.target.value })}
-                  className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50">
-                  <option value="">بدون مورد</option>
-                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-sm text-muted block mb-1">الصنف *</label>
-                <select value={editItem.item_type_id}
-                  onChange={e => setEditItem({ ...editItem, item_type_id: e.target.value })}
-                  className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50">
-                  <option value="">اختر الصنف</option>
-                  {itemTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { label: "العدد *",    field: "quantity" as keyof SaleItem },
-                  { label: "الوزن *",    field: "weight"   as keyof SaleItem },
-                  { label: "السعر *",    field: "price"    as keyof SaleItem },
-                ].map(({ label, field }) => (
-                  <div key={field}>
-                    <label className="text-sm text-muted block mb-1">{label}</label>
-                    <input type="number" step="0.01" value={editItem[field]}
-                      onChange={e => setEditItem({ ...editItem, [field]: e.target.value })}
-                      className="w-full rounded-xl bg-bg border border-line px-3 py-3 text-cream focus:outline-none focus:border-green/50" />
-                  </div>
-                ))}
-              </div>
+      {/* ══ Modal الإضافة ══ */}
+      {showAdd && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-card border border-line rounded-3xl p-6 w-full max-w-3xl my-8 space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-cream">إضافة بيع جديد</h2>
+              <span className="text-muted text-sm">{targetDate}</span>
             </div>
-            <div className="flex gap-3 mt-6">
-              <button onClick={() => setEditSale(null)}
-                className="flex-1 rounded-2xl bg-card-hi border border-line px-6 py-3 font-bold text-cream hover:bg-bg">إلغاء</button>
-              <button onClick={handleEditSave} disabled={saving}
+
+            <div className="space-y-4">
+              {rows.map((row, i) => (
+                <div key={i} className="bg-bg/60 border border-line rounded-2xl p-4 space-y-3 relative">
+                  {rows.length > 1 && (
+                    <button onClick={() => removeRow(i)}
+                      className="absolute top-3 left-3 text-red hover:bg-red/10 rounded-lg px-2 py-0.5 text-xs transition-colors">
+                      حذف
+                    </button>
+                  )}
+                  <p className="text-muted text-xs font-semibold">السجل {i + 1}</p>
+
+                  {/* الصف الأول: المشترٍ + المورد + الصنف */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs text-muted block mb-1">المشترٍ</label>
+                      <select value={row.buyer_id} onChange={e => updateRow(i, "buyer_id", e.target.value)} className={selectCls}>
+                        <option value="">— بدون مشترٍ —</option>
+                        {buyers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted block mb-1">المورد</label>
+                      <select value={row.supplier_id} onChange={e => updateRow(i, "supplier_id", e.target.value)} className={selectCls}>
+                        <option value="">— بدون مورد —</option>
+                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted block mb-1">النوع *</label>
+                      <select value={row.item_type_id} onChange={e => updateRow(i, "item_type_id", e.target.value)} className={selectCls}>
+                        <option value="">— اختر النوع —</option>
+                        {itemTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* الصف الثاني: العدد + الوزن + السعر */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs text-muted block mb-1">العدد *</label>
+                      <input type="number" step="0.25" min="0" value={row.quantity}
+                        onChange={e => updateRow(i, "quantity", e.target.value)}
+                        placeholder="مثال: 0.5"
+                        className={inputCls} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted block mb-1">الوزن (كجم) *</label>
+                      <input type="number" step="0.01" min="0" value={row.weight}
+                        onChange={e => updateRow(i, "weight", e.target.value)}
+                        placeholder="مثال: 50.3"
+                        className={inputCls} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted block mb-1">السعر (ر.س) *</label>
+                      <input type="number" step="0.01" min="0" value={row.price}
+                        onChange={e => updateRow(i, "price", e.target.value)}
+                        placeholder="مثال: 1250.75"
+                        className={inputCls} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* إضافة صف */}
+            {rows.length < 15 && (
+              <button onClick={addRow}
+                className="w-full py-2.5 rounded-xl border border-dashed border-green/30 text-green text-sm hover:bg-green/5 transition-colors">
+                + إضافة سجل آخر
+              </button>
+            )}
+
+            {/* ملاحظات */}
+            <div>
+              <label className="text-sm text-muted block mb-1">ملاحظات (اختياري)</label>
+              <textarea value={addNotes} onChange={e => setAddNotes(e.target.value)}
+                placeholder="أي ملاحظات..." rows={2}
+                className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50 resize-none text-sm"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => { setShowAdd(false); setRows([emptyRow()]); setAddNotes(""); }}
+                className="flex-1 rounded-2xl bg-card-hi border border-line px-6 py-3 font-bold text-cream hover:bg-bg">
+                إلغاء
+              </button>
+              <button onClick={handleSubmit} disabled={saving}
                 className="flex-[2] rounded-2xl bg-green hover:bg-green-dark disabled:opacity-50 px-6 py-3 font-bold text-white">
-                {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
+                {saving ? "جاري الحفظ..." : "💾 حفظ المبيعات"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal الإضافة */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-card border border-line rounded-3xl p-6 w-full max-w-4xl my-8">
-            <h2 className="text-2xl font-bold mb-6">إضافة مبيعات خارجية جديدة</h2>
-            <div className="mb-6">
-              <label className="text-sm text-muted block mb-2">الفرع *</label>
-              <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)}
-                className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50">
-                <option value="">اختر الفرع</option>
-                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </div>
+      {/* ══ Modal التعديل ══ */}
+      {editSale && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-card border border-line rounded-3xl p-6 w-full max-w-lg space-y-4">
+            <h2 className="text-xl font-bold text-cream">تعديل سجل البيع</h2>
 
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <label className="text-sm text-muted">إضافة أصناف (حتى 10)</label>
-                {items.length < 10 && (
-                  <button onClick={addItem} className="text-green hover:underline text-sm">+ إضافة صنف آخر</button>
-                )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs text-muted block mb-1">المشترٍ</label>
+                <select value={editRow.buyer_id} onChange={e => setEditRow({ ...editRow, buyer_id: e.target.value })} className={selectCls}>
+                  <option value="">— بدون مشترٍ —</option>
+                  {buyers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
               </div>
-              <div className="space-y-4">
-                {items.map((item, index) => (
-                  <div key={index} className="bg-bg/50 rounded-xl p-4 border border-line relative">
-                    {items.length > 1 && (
-                      <button onClick={() => removeItem(index)}
-                        className="absolute top-2 left-2 text-red hover:bg-red/10 rounded-lg px-2 py-1 text-sm">حذف</button>
-                    )}
-                    <p className="text-xs text-muted mb-3">الصنف {index + 1}</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      <select value={item.supplier_id}
-                        onChange={e => updateItem(index, "supplier_id", e.target.value)}
-                        className="rounded-xl bg-bg border border-line px-3 py-2 text-cream text-sm focus:outline-none focus:border-green/50">
-                        <option value="">المورد</option>
-                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
-                      <select value={item.item_type_id}
-                        onChange={e => updateItem(index, "item_type_id", e.target.value)}
-                        className="rounded-xl bg-bg border border-line px-3 py-2 text-cream text-sm focus:outline-none focus:border-green/50">
-                        <option value="">الصنف</option>
-                        {itemTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                      </select>
-                      <input type="number" value={item.quantity}
-                        onChange={e => updateItem(index, "quantity", e.target.value)}
-                        placeholder="العدد" min="1"
-                        className="rounded-xl bg-bg border border-line px-3 py-2 text-cream text-sm focus:outline-none focus:border-green/50"
-                      />
-                      <input type="number" step="0.01" value={item.weight}
-                        onChange={e => updateItem(index, "weight", e.target.value)}
-                        placeholder="الوزن (كجم)"
-                        className="rounded-xl bg-bg border border-line px-3 py-2 text-cream text-sm focus:outline-none focus:border-green/50"
-                      />
-                      <input type="number" step="0.01" value={item.price}
-                        onChange={e => updateItem(index, "price", e.target.value)}
-                        placeholder="السعر (ر)"
-                        className="rounded-xl bg-bg border border-line px-3 py-2 text-cream text-sm focus:outline-none focus:border-green/50 col-span-2"
-                      />
-                    </div>
-                  </div>
-                ))}
+              <div>
+                <label className="text-xs text-muted block mb-1">المورد</label>
+                <select value={editRow.supplier_id} onChange={e => setEditRow({ ...editRow, supplier_id: e.target.value })} className={selectCls}>
+                  <option value="">— بدون مورد —</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted block mb-1">النوع *</label>
+                <select value={editRow.item_type_id} onChange={e => setEditRow({ ...editRow, item_type_id: e.target.value })} className={selectCls}>
+                  <option value="">— اختر —</option>
+                  {itemTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
               </div>
             </div>
 
-            <div className="mb-6">
-              <label className="text-sm text-muted block mb-2">ملاحظات</label>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)}
-                placeholder="أي ملاحظات إضافية..." rows={3}
-                className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50 resize-none"
-              />
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs text-muted block mb-1">العدد *</label>
+                <input type="number" step="0.25" min="0" value={editRow.quantity}
+                  onChange={e => setEditRow({ ...editRow, quantity: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className="text-xs text-muted block mb-1">الوزن (كجم) *</label>
+                <input type="number" step="0.01" min="0" value={editRow.weight}
+                  onChange={e => setEditRow({ ...editRow, weight: e.target.value })}
+                  className={inputCls} />
+              </div>
+              <div>
+                <label className="text-xs text-muted block mb-1">السعر (ر.س) *</label>
+                <input type="number" step="0.01" min="0" value={editRow.price}
+                  onChange={e => setEditRow({ ...editRow, price: e.target.value })}
+                  className={inputCls} />
+              </div>
             </div>
 
-            <div className="flex gap-3">
-              <button onClick={() => { setShowAddModal(false); setSelectedBranch(""); setItems([emptyItem()]); setNotes(""); }}
-                className="flex-1 rounded-2xl bg-card-hi border border-line px-6 py-3 font-bold text-cream hover:bg-bg">إلغاء</button>
-              <button onClick={handleSubmit} disabled={saving}
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setEditSale(null)}
+                className="flex-1 rounded-2xl bg-card-hi border border-line px-6 py-3 font-bold text-cream hover:bg-bg">
+                إلغاء
+              </button>
+              <button onClick={handleEditSave} disabled={saving}
                 className="flex-[2] rounded-2xl bg-green hover:bg-green-dark disabled:opacity-50 px-6 py-3 font-bold text-white">
-                {saving ? "جاري الحفظ..." : "حفظ المبيعات الخارجية"}
+                {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
               </button>
             </div>
           </div>

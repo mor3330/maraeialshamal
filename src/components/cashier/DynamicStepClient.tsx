@@ -41,9 +41,12 @@ export default function DynamicStepClient({
     deferredAmount: number;
     lastSync: string | null;
     syncedInvoices: number;
+    hasCategoryData?: boolean;
+    byCategory?: Record<string, { qty: number; amount: number }>;
   }>(null);
   const [aroniumLoading, setAroniumLoading] = useState(false);
   const [aroniumApplied, setAroniumApplied] = useState(false);
+  const [categoryApplied, setCategoryApplied] = useState(false);
 
   useEffect(() => {
     const s = getSession();
@@ -56,8 +59,8 @@ export default function DynamicStepClient({
     // Load step fields
     loadFields();
 
-    // ─── تحميل بيانات Aronium تلقائياً للخطوة 2 ───
-    if (step === 2) {
+    // ─── تحميل بيانات Aronium تلقائياً للخطوة 2 و 3 ───
+    if (step === 2 || step === 3) {
       const reportDate = sessionStorage.getItem("requested_report_date") ?? (() => {
         const riyadh = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
         riyadh.setDate(riyadh.getDate() - 1);
@@ -96,6 +99,49 @@ export default function DynamicStepClient({
       deferred_amount: aroniumData.deferredAmount,
     });
     setAroniumApplied(true);
+  }
+
+  /** تطبيق بيانات الفئات على حقول الخطوة 3 - يدعم أسماء حقول متنوعة */
+  function applyCategoryData() {
+    if (!aroniumData?.byCategory) return;
+    const cat = aroniumData.byCategory;
+
+    // كلمات تدل على الكمية/الوزن
+    const QTY_KEYWORDS  = ["qty","quantity","weight","kg","kilo","count","num","units","amount_kg"];
+    // كلمات تدل على المبلغ/السعر (أو أي شيء آخر افتراضي)
+    // const AMT_KEYWORDS  = ["amount","price","total","sales","value","revenue","sum","cost","ريال","sr"];
+
+    setValues(prev => {
+      const next = { ...prev };
+      fields.forEach(field => {
+        const fn = field.field_name.toLowerCase();
+
+        // تحديد الفئة
+        let catData: { qty: number; amount: number } | undefined;
+        if      (fn.startsWith("hashi_") || fn === "hashi") catData = cat.hashi;
+        else if (fn.startsWith("sheep_") || fn === "sheep") catData = cat.sheep;
+        else if (fn.startsWith("beef_")  || fn === "beef")  catData = cat.beef;
+        else if (fn.startsWith("offal_") || fn === "offal") catData = cat.offal;
+        else return; // حقل لا ينتمي لأي فئة
+
+        // تحديد هل هو كمية أم مبلغ
+        const isQty = QTY_KEYWORDS.some(k => fn.includes(k));
+        next[field.id] = String(isQty ? (catData.qty ?? 0) : (catData.amount ?? 0));
+      });
+      return next;
+    });
+
+    setErrors(prev => {
+      const next = { ...prev };
+      fields.forEach(field => {
+        const fn = field.field_name.toLowerCase();
+        if (fn.startsWith("hashi_") || fn.startsWith("sheep_") || fn.startsWith("beef_") || fn.startsWith("offal_")) {
+          delete next[field.id];
+        }
+      });
+      return next;
+    });
+    setCategoryApplied(true);
   }
 
   async function loadFields() {
@@ -245,7 +291,8 @@ export default function DynamicStepClient({
       const next = { ...prev };
       fields.forEach(field => {
         const scannedVal = mapping[field.field_name];
-        if (scannedVal !== undefined && scannedVal > 0) {
+        // نضع القيمة حتى لو كانت 0 (التحويل والآجل يساوي 0 أحياناً)
+        if (scannedVal !== undefined && scannedVal >= 0) {
           next[field.id] = String(scannedVal);
         }
       });
@@ -582,6 +629,82 @@ export default function DynamicStepClient({
                 </div>
                 <button
                   onClick={() => { setAroniumApplied(false); applyAroniumData(); }}
+                  className="mr-auto text-muted text-xs hover:text-cream transition-colors"
+                >
+                  إعادة تطبيق
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ═══ بانر Aronium POS - الخطوة 3: فئات المنتجات ═══ */}
+        {step === 3 && (
+          <>
+            {aroniumLoading && (
+              <div className="rounded-2xl border border-blue-400/20 bg-blue-400/5 px-4 py-3 flex items-center gap-3">
+                <div className="w-4 h-4 rounded-full border-2 border-blue-400 border-t-transparent animate-spin flex-shrink-0" />
+                <p className="text-blue-300 text-sm">جاري جلب بيانات أصناف Aronium...</p>
+              </div>
+            )}
+
+            {!aroniumLoading && aroniumData && aroniumData.hasCategoryData && !categoryApplied && (
+              <div className="rounded-2xl border border-blue-400/30 bg-blue-400/5 overflow-hidden">
+                <div className="bg-blue-400/10 px-4 py-3 border-b border-blue-400/20 flex items-center gap-2">
+                  <span className="text-lg">📊</span>
+                  <h3 className="text-blue-300 font-bold text-sm">تفاصيل المبيعات من Aronium</h3>
+                  <span className="text-muted text-xs mr-auto">تعبئة تلقائية</span>
+                </div>
+                <div className="p-4">
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    {[
+                      { key: "hashi", icon: "🐪", label: "حاشي",   color: "text-amber"       },
+                      { key: "sheep", icon: "🐑", label: "غنم",    color: "text-blue-300"    },
+                      { key: "beef",  icon: "🐄", label: "عجل",    color: "text-red-300"     },
+                      { key: "offal", icon: "🥩", label: "مخلفات", color: "text-purple-300"  },
+                    ].map(c => {
+                      const d = aroniumData.byCategory?.[c.key];
+                      if (!d || (d.amount === 0 && d.qty === 0)) return null;
+                      return (
+                        <div key={c.key} className="rounded-xl bg-bg border border-line p-3 text-center">
+                          <p className="text-lg mb-0.5">{c.icon}</p>
+                          <p className="text-muted text-xs">{c.label}</p>
+                          <p className={`font-bold text-sm ltr-num ${c.color}`} dir="ltr">
+                            {d.amount.toLocaleString("ar-SA-u-nu-latn")} ر.س
+                          </p>
+                          <p className="text-muted text-xs">{d.qty} كغ</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={applyCategoryData}
+                    className="w-full bg-blue-500 hover:bg-blue-600 text-white rounded-xl py-3 font-bold text-sm transition-colors active:scale-[0.98]"
+                  >
+                    ✓ تعبئة الفئات تلقائياً
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!aroniumLoading && aroniumData && !aroniumData.hasCategoryData && (
+              <div className="rounded-2xl border border-amber/20 bg-amber/5 px-4 py-3">
+                <p className="text-amber text-sm font-semibold">⚠️ لا توجد بيانات أصناف</p>
+                <p className="text-muted text-xs mt-1">
+                  صنّف المنتجات من لوحة الإدارة ← تصنيف المنتجات حتى تتمكن من التعبئة التلقائية
+                </p>
+              </div>
+            )}
+
+            {!aroniumLoading && categoryApplied && (
+              <div className="rounded-2xl border border-blue-400/30 bg-blue-400/10 px-4 py-3 flex items-center gap-3">
+                <span className="text-xl">✅</span>
+                <div>
+                  <p className="text-blue-300 font-bold text-sm">تم تعبئة فئات المنتجات</p>
+                  <p className="text-muted text-xs">تحقق من الأرقام أدناه</p>
+                </div>
+                <button
+                  onClick={() => { setCategoryApplied(false); applyCategoryData(); }}
                   className="mr-auto text-muted text-xs hover:text-cream transition-colors"
                 >
                   إعادة تطبيق

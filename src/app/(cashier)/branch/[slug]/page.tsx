@@ -2,17 +2,8 @@ import PinLoginClient from "@/components/cashier/PinLoginClient";
 
 export const dynamic = "force-dynamic";
 
-// Slug → display name fallback (used when Supabase is not configured)
-const BRANCH_NAMES: Record<string, string> = {
-  olaya: "فرع العليا",
-  nakheel: "فرع النخيل",
-  malaz: "فرع الملز",
-  rawdah: "فرع الروضة",
-  suwaydi: "فرع السويدي",
-};
-
 interface PageProps {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
 type BranchRow = {
@@ -24,35 +15,46 @@ type BranchRow = {
 
 async function getBranch(slug: string): Promise<BranchRow | null> {
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
-    // If Supabase is not configured, return a local fallback
-    if (!url || url.includes("placeholder") || url.includes("your_") || !key || key.includes("placeholder") || key.includes("your_")) {
-      const name = BRANCH_NAMES[slug];
-      if (!name) return null;
-      return { id: slug, name, slug, is_active: true };
+    if (
+      !url || url.includes("placeholder") || url.includes("your_") ||
+      !key || key.includes("placeholder") || key.includes("your_")
+    ) {
+      return null;
     }
 
-    const { createServiceClient } = await import("@/lib/supabase");
-    const supabase = createServiceClient();
-    const { data } = await supabase
-      .from("branches")
-      .select("id, name, slug, is_active")
-      .eq("slug", slug)
-      .single();
+    const res = await fetch(
+      `${url}/rest/v1/branches?slug=eq.${encodeURIComponent(slug)}&select=id,name,slug,is_active&limit=1`,
+      {
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      }
+    );
 
-    return (data as unknown as BranchRow) ?? null;
-  } catch {
-    // Network error or Supabase down → use fallback
-    const name = BRANCH_NAMES[slug];
-    if (!name) return null;
-    return { id: slug, name, slug, is_active: true };
+    if (!res.ok) {
+      console.error("[getBranch] Supabase error:", res.status);
+      return null;
+    }
+
+    const data: BranchRow[] = await res.json();
+    return data.length > 0 ? data[0] : null;
+
+  } catch (err) {
+    console.error("[getBranch] fetch failed:", err);
+    return null;
   }
 }
 
 export default async function BranchLoginPage({ params }: PageProps) {
-  const branch = await getBranch(params.slug);
+  // ✅ Next.js 15+ : params is async
+  const { slug } = await params;
+  const branch = await getBranch(slug);
 
   if (!branch || !branch.is_active) {
     return (

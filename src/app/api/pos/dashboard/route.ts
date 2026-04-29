@@ -59,12 +59,12 @@ export async function GET(request: NextRequest) {
   const fromUTC = `${range.from}T00:00:00+03:00`;
   const toUTC   = `${range.to}T23:59:59+03:00`;
 
-  interface BranchRow { id: string; name: string; code: string; slug: string; is_active: boolean; }
+  interface BranchRow { id: string; name: string; code: string; slug: string; is_active: boolean; pos_sync_enabled: boolean; }
 
   // ─── جلب الفروع ───
   const { data: rawBranches } = await supabase
     .from("branches")
-    .select("id, name, code, slug, is_active")
+    .select("id, name, code, slug, is_active, pos_sync_enabled")
     .order("name");
   const branches = (rawBranches ?? []) as BranchRow[];
 
@@ -76,10 +76,11 @@ export async function GET(request: NextRequest) {
     .lte("sale_date", toUTC);
   const sales = (rawSales ?? []) as SaleRow[];
 
-  // ─── آخر مزامنة لكل فرع ───
+  // ─── آخر مزامنة لكل فرع (فقط السجلات المكتملة، بدون running) ───
   const { data: rawLogs } = await (supabase as any)
     .from("sync_logs")
-    .select("branch_id, sync_end, sales_count, status, error_message")
+    .select("branch_id, sync_end, sync_start, sales_count, status, error_message")
+    .not("sync_end", "is", null)
     .order("sync_end", { ascending: false });
   const logs = (rawLogs ?? []) as SyncLogRow[];
 
@@ -93,7 +94,7 @@ export async function GET(request: NextRequest) {
 
   // ─── تجميع لكل فرع ───
   type BranchStat = {
-    id: string; name: string; slug: string; code: string; is_active: boolean;
+    id: string; name: string; slug: string; code: string; is_active: boolean; pos_sync_enabled: boolean;
     totalSales: number; invoiceCount: number; refundCount: number;
     cash: number; network: number; transfer: number; deferred: number;
     lastSync: string | null; lastSyncStatus: string | null;
@@ -103,7 +104,7 @@ export async function GET(request: NextRequest) {
   const branchMap: Record<string, BranchStat> = {};
   for (const b of (branches ?? [])) {
     branchMap[b.id] = {
-      id: b.id, name: b.name, slug: b.slug, code: b.code, is_active: b.is_active,
+      id: b.id, name: b.name, slug: b.slug, code: b.code, is_active: b.is_active, pos_sync_enabled: b.pos_sync_enabled !== false,
       totalSales: 0, invoiceCount: 0, refundCount: 0,
       cash: 0, network: 0, transfer: 0, deferred: 0,
       lastSync: lastSyncPerBranch[b.id]?.sync_end ?? null,

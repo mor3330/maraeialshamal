@@ -9,26 +9,30 @@ export async function GET(request: Request) {
   const supabase = createServiceClient();
   const { searchParams } = new URL(request.url);
 
-  const branchId    = searchParams.get("branchId");
-  const date        = searchParams.get("date");
-  const supplierId  = searchParams.get("supplierId");
-  const itemTypeId  = searchParams.get("itemTypeId");
+  const buyerId    = searchParams.get("buyerId");
+  const date       = searchParams.get("date");
+  const supplierId = searchParams.get("supplierId");
+  const itemTypeId = searchParams.get("itemTypeId");
+  const dateFrom   = searchParams.get("dateFrom");
+  const dateTo     = searchParams.get("dateTo");
 
   let query = supabase
     .from("external_sales")
     .select(`
       *,
-      branches:branch_id(id, name),
+      buyers:buyer_id(id, name, phone),
       suppliers:supplier_id(id, name),
       item_types:item_type_id(id, name, name_en)
     `)
-    .order("sale_date",   { ascending: false })
-    .order("created_at",  { ascending: false });
+    .order("sale_date",  { ascending: false })
+    .order("created_at", { ascending: false });
 
-  if (branchId)   query = query.eq("branch_id",   branchId);
-  if (date && date !== "undefined") query = query.eq("sale_date", date);
+  if (buyerId)    query = query.eq("buyer_id",    buyerId);
   if (supplierId) query = query.eq("supplier_id", supplierId);
   if (itemTypeId) query = query.eq("item_type_id", itemTypeId);
+  if (date && date !== "undefined") query = query.eq("sale_date", date);
+  if (dateFrom)   query = query.gte("sale_date", dateFrom);
+  if (dateTo)     query = query.lte("sale_date", dateTo);
 
   const { data, error } = await query.limit(500);
 
@@ -41,22 +45,22 @@ export async function POST(request: Request) {
   const supabase = createServiceClient();
   try {
     const body = await request.json();
-    const { branch_id, supplier_id, sale_date, item_type_id, quantity, weight, price, notes } = body;
+    const { buyer_id, supplier_id, sale_date, item_type_id, quantity, weight, price, notes } = body;
 
-    if (!branch_id || !item_type_id)
-      return NextResponse.json({ error: "الفرع والصنف مطلوبان" }, { status: 400 });
+    if (!item_type_id)
+      return NextResponse.json({ error: "الصنف مطلوب" }, { status: 400 });
 
     const { data, error } = await supabase
       .from("external_sales")
       .insert([{
-        branch_id,
-        supplier_id:  supplier_id  || null,
-        sale_date:    sale_date    || new Date().toISOString().split("T")[0],
+        buyer_id:    buyer_id    || null,
+        supplier_id: supplier_id || null,
+        sale_date:   sale_date   || new Date().toISOString().split("T")[0],
         item_type_id,
-        quantity:  parseInt(quantity),
-        weight:    parseFloat(weight),
-        price:     parseFloat(price),
-        notes:     notes || null,
+        quantity: parseFloat(quantity)  || 0,
+        weight:   parseFloat(weight)   || 0,
+        price:    parseFloat(price)    || 0,
+        notes:    notes || null,
       }])
       .select()
       .single();
@@ -77,16 +81,19 @@ export async function PATCH(request: Request) {
 
   try {
     const body = await request.json();
-    const { supplier_id, item_type_id, quantity, weight, price } = body;
+    const { buyer_id, supplier_id, item_type_id, quantity, weight, price, sale_date, notes } = body;
 
     const { data, error } = await supabase
       .from("external_sales")
       .update({
-        supplier_id:  supplier_id  || null,
+        buyer_id:    buyer_id    || null,
+        supplier_id: supplier_id || null,
         item_type_id,
-        quantity:  parseInt(quantity),
-        weight:    parseFloat(weight),
-        price:     parseFloat(price),
+        quantity: parseFloat(quantity) || 0,
+        weight:   parseFloat(weight)  || 0,
+        price:    parseFloat(price)   || 0,
+        ...(sale_date ? { sale_date } : {}),
+        ...(notes !== undefined ? { notes: notes || null } : {}),
       })
       .eq("id", id)
       .select()

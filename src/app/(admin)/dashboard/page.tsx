@@ -10,9 +10,9 @@ interface Branch { id: string; name: string; slug: string; is_active: boolean; }
 interface MeatData {
   incoming: { hashi: number; sheep: number; beef: number };
   sold: {
-    hashi: { bone_weight: number; bone_price: number; clean_weight: number; clean_price: number };
+    hashi: { bone_weight: number; bone_price: number; clean_weight: number; clean_price: number; total_weight?: number; total_price?: number };
     sheep: { weight: number; price: number };
-    beef: { bone_weight: number; bone_price: number; clean_weight: number; clean_price: number };
+    beef:  { bone_weight: number; bone_price: number; clean_weight: number; clean_price: number; total_weight?: number; total_price?: number };
   };
   exports?: { hashi: number; sheep: number; beef: number };
   waste?: { hashi: number; sheep: number; beef: number };
@@ -36,7 +36,7 @@ interface Report {
 interface DashData {
   todayISO: string; yesterdayISO: string; twoDaysAgoISO: string; todayLong: string;
   branches: Branch[]; reports: Report[];
-  purchasesByDate: Record<string, { hashi: { weight: number; price: number }; sheep: { weight: number; price: number }; beef: { weight: number; price: number } }>;
+  purchasesByDate: Record<string, { hashi: { weight: number; price: number; quantity: number }; sheep: { weight: number; price: number; quantity: number }; beef: { weight: number; price: number; quantity: number } }>;
 }
 
 const toN = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -117,9 +117,9 @@ export default function DashboardPage() {
   // حساب اللحوم الإجمالية
   // السعر من purchasesByDate لليوم المحدد فقط
   const dayPurchases = purchasesByDate[activeDate] ?? {
-    hashi: { weight: 0, price: 0 },
-    sheep: { weight: 0, price: 0 },
-    beef:  { weight: 0, price: 0 },
+    hashi: { weight: 0, price: 0, quantity: 0 },
+    sheep: { weight: 0, price: 0, quantity: 0 },
+    beef:  { weight: 0, price: 0, quantity: 0 },
   };
 
   const meatTotals = {
@@ -137,12 +137,16 @@ export default function DashboardPage() {
       meatTotals.incoming.sheep += r.meatData.incoming.sheep;
       meatTotals.incoming.beef  += r.meatData.incoming.beef;
 
-      meatTotals.sold.hashi.weight += r.meatData.sold.hashi.bone_weight + r.meatData.sold.hashi.clean_weight;
-      meatTotals.sold.hashi.price  += r.meatData.sold.hashi.bone_price  + r.meatData.sold.hashi.clean_price;
+      // حاشي: استخدم total_weight إذا موجود، وإلا bone+clean
+      const h = r.meatData.sold.hashi;
+      meatTotals.sold.hashi.weight += h.total_weight ?? (h.bone_weight + h.clean_weight);
+      meatTotals.sold.hashi.price  += h.total_price  ?? (h.bone_price  + h.clean_price);
       meatTotals.sold.sheep.weight += r.meatData.sold.sheep.weight;
       meatTotals.sold.sheep.price  += r.meatData.sold.sheep.price;
-      meatTotals.sold.beef.weight  += r.meatData.sold.beef.bone_weight  + r.meatData.sold.beef.clean_weight;
-      meatTotals.sold.beef.price   += r.meatData.sold.beef.bone_price   + r.meatData.sold.beef.clean_price;
+      // عجل: استخدم total_weight إذا موجود، وإلا bone+clean
+      const b = r.meatData.sold.beef;
+      meatTotals.sold.beef.weight  += b.total_weight ?? (b.bone_weight + b.clean_weight);
+      meatTotals.sold.beef.price   += b.total_price  ?? (b.bone_price  + b.clean_price);
     }
   });
 
@@ -364,17 +368,17 @@ export default function DashboardPage() {
           <div className="grid gap-4 lg:grid-cols-3">
             <MeatCard
               title="حاشي"
-              incoming={{ weight: dayPurchases.hashi.weight, price: dayPurchases.hashi.price }}
+              incoming={{ weight: dayPurchases.hashi.weight, price: dayPurchases.hashi.price, quantity: dayPurchases.hashi.quantity }}
               sold={{ weight: meatTotals.sold.hashi.weight, price: meatTotals.sold.hashi.price }}
             />
             <MeatCard
               title="غنم"
-              incoming={{ weight: dayPurchases.sheep.weight, price: dayPurchases.sheep.price }}
+              incoming={{ weight: dayPurchases.sheep.weight, price: dayPurchases.sheep.price, quantity: dayPurchases.sheep.quantity }}
               sold={{ weight: meatTotals.sold.sheep.weight, price: meatTotals.sold.sheep.price }}
             />
             <MeatCard
               title="عجل"
-              incoming={{ weight: dayPurchases.beef.weight, price: dayPurchases.beef.price }}
+              incoming={{ weight: dayPurchases.beef.weight, price: dayPurchases.beef.price, quantity: dayPurchases.beef.quantity }}
               sold={{ weight: meatTotals.sold.beef.weight, price: meatTotals.sold.beef.price }}
             />
           </div>
@@ -476,13 +480,22 @@ export default function DashboardPage() {
                 <p className="text-muted text-sm">مسؤول المشتريات</p>
               </div>
             </div>
-            <Link
-              href="/dashboard/purchases-review"
-              className="flex items-center gap-3 bg-amber text-black rounded-2xl px-6 py-3 font-black hover:bg-amber/90 transition-all"
-            >
-              <span>📊</span>
-              مراجعة المشتريات
-            </Link>
+            <div className="flex items-center gap-3 flex-wrap">
+              <Link
+                href="/dashboard/purchase-categories"
+                className="flex items-center gap-2 border border-purple-400/40 bg-purple-500/10 text-purple-300 rounded-2xl px-5 py-3 font-bold text-sm hover:bg-purple-500/20 transition-all"
+              >
+                <span>🏷️</span>
+                تصنيف المشتريات
+              </Link>
+              <Link
+                href="/dashboard/purchases-review"
+                className="flex items-center gap-3 bg-amber text-black rounded-2xl px-6 py-3 font-black hover:bg-amber/90 transition-all"
+              >
+                <span>📊</span>
+                مراجعة المشتريات
+              </Link>
+            </div>
           </div>
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="rounded-2xl bg-card-hi border border-line p-4">
@@ -528,9 +541,14 @@ function KPICard({ label, value, unit, color }: { label: string; value: string; 
 
 function MeatCard({ title, incoming, sold }: {
   title: string;
-  incoming: { weight: number; price: number };
+  incoming: { weight: number; price: number; quantity?: number };
   sold: { weight: number; price: number };
 }) {
+  // للغنم: إذا weight=0 والعدد موجود، اعرض العدد (رأس)
+  const showQty = incoming.weight === 0 && (incoming.quantity ?? 0) > 0;
+  const displayVal   = showQty ? (incoming.quantity ?? 0) : incoming.weight;
+  const displayUnit  = showQty ? "رأس" : "كجم";
+
   return (
     <div className="rounded-2xl border border-line bg-card-hi p-5">
       <h3 className="text-xl font-bold mb-4">{title}</h3>
@@ -541,8 +559,8 @@ function MeatCard({ title, incoming, sold }: {
           <p className="text-muted text-xs mb-2">الوارد</p>
           <div className="flex items-end justify-between">
             <div>
-              <p className="text-2xl font-bold text-cream ltr-num" dir="ltr">{fmt(incoming.weight)}</p>
-              <p className="text-xs text-muted">كجم</p>
+              <p className="text-2xl font-bold text-cream ltr-num" dir="ltr">{fmt(displayVal)}</p>
+              <p className="text-xs text-muted">{displayUnit}</p>
             </div>
             <div className="text-left">
               <p className="text-xs text-muted/60">السعر</p>

@@ -1,205 +1,196 @@
-# ═══════════════════════════════════════════════════════════
-# install.ps1 - تثبيت نظام مزامنة Aronium POS
-# مراعي الشمال - شغّل هذا كـ Administrator
-# ═══════════════════════════════════════════════════════════
-# الاستخدام:
-#   powershell -ExecutionPolicy Bypass -File install.ps1
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# install.ps1 - تثبيت نظام مزامنة Aronium مع Supabase
+# مراعي الشمال - يُثبَّت مرة واحدة ثم يعمل تلقائياً إلى الأبد
+# ═══════════════════════════════════════════════════════════════
 
 param(
-    [string]$BranchId    = "",
-    [string]$BranchName  = "",
-    [string]$SupabaseUrl = "",
-    [string]$SupabaseKey = ""
+    [string]$BranchId      = "",
+    [string]$SupabaseUrl   = "",
+    [string]$SupabaseKey   = "",
+    [string]$AroniumDbPath = "",
+    [string]$BranchName    = "",
+    [string]$ServerUrl     = ""
 )
 
 $INSTALL_DIR = "C:\AroniumSync"
 $TASK_NAME   = "AroniumSync-MaraeiAlShimal"
 
-Write-Host "═══════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "  تثبيت نظام مزامنة Aronium POS" -ForegroundColor Cyan
-Write-Host "  مراعي الشمال" -ForegroundColor Cyan
-Write-Host "═══════════════════════════════════════" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "═══════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "  تثبيت نظام مزامنة مراعي الشمال" -ForegroundColor Cyan
+Write-Host "  يعمل تلقائياً دائماً - لا تدخل يدوي بعد اليوم" -ForegroundColor Cyan
+Write-Host "═══════════════════════════════════════════════════" -ForegroundColor Cyan
 Write-Host ""
 
-# ─── 1. التحقق من صلاحية Admin ──────────────────────────
+# ── التحقق من صلاحيات Administrator ──────────────────────
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "❌ يجب تشغيل هذا السكربت كـ Administrator!" -ForegroundColor Red
-    Write-Host "   انقر بالزر الأيمن على PowerShell ← Run as Administrator" -ForegroundColor Yellow
+    Write-Host "⚠️  يجب تشغيل هذا السكريبت كـ Administrator" -ForegroundColor Red
+    Write-Host "   انقر يمين على PowerShell → Run as Administrator" -ForegroundColor Yellow
+    Pause
     exit 1
 }
 
-# ─── 2. التحقق من بيانات الفرع ──────────────────────────
-if (-not $BranchId) {
-    $BranchId = Read-Host "أدخل branch_id للفرع (UUID من Supabase)"
+# ── التحقق من Python ──────────────────────────────────────
+$pythonPath = ""
+foreach ($candidate in @("python", "python3", "py")) {
+    try {
+        $ver = & $candidate --version 2>&1
+        if ($ver -match "Python") {
+            $pythonPath = (Get-Command $candidate -ErrorAction SilentlyContinue).Source
+            if (-not $pythonPath) { $pythonPath = $candidate }
+            Write-Host "✅ Python موجود: $ver" -ForegroundColor Green
+            break
+        }
+    } catch {}
 }
-if (-not $BranchName) {
-    $BranchName = Read-Host "أدخل اسم الفرع (مثال: فرع العليا)"
+if (-not $pythonPath) {
+    Write-Host "❌ Python غير مثبت!" -ForegroundColor Red
+    Write-Host "   حمّله من: https://www.python.org/downloads/" -ForegroundColor Yellow
+    Write-Host "   تأكد من وضع علامة صح على 'Add Python to PATH'" -ForegroundColor Yellow
+    Pause
+    exit 1
+}
+
+# ── جمع البيانات إذا لم تُعطَ ────────────────────────────
+if (-not $BranchId) {
+    Write-Host ""
+    Write-Host "─── بيانات الفرع ───────────────────────────────────" -ForegroundColor Yellow
+    $BranchId = Read-Host "  branch_id (UUID الفرع من Supabase)"
 }
 if (-not $SupabaseUrl) {
-    $SupabaseUrl = Read-Host "أدخل Supabase URL (مثال: https://abc.supabase.co)"
+    $SupabaseUrl = Read-Host "  supabase_url (مثال: https://XXXX.supabase.co)"
 }
 if (-not $SupabaseKey) {
-    $SupabaseKey = Read-Host "أدخل Supabase service_role key"
+    $SupabaseKey = Read-Host "  supabase_key (anon أو service_role key)"
+}
+if (-not $AroniumDbPath) {
+    $default = "$env:LOCALAPPDATA\Aronium\Data\pos.db"
+    $input   = Read-Host "  مسار Aronium DB (Enter للافتراضي: $default)"
+    $AroniumDbPath = if ($input) { $input } else { $default }
+}
+if (-not $BranchName) {
+    $BranchName = Read-Host "  اسم الفرع (مثال: مراعي الشمال 3)"
+}
+if (-not $ServerUrl) {
+    $ServerUrl = Read-Host "  رابط السيرفر للتحديثات التلقائية (مثال: https://yourapp.vercel.app)"
 }
 
-# ─── 3. إيجاد مسار قاعدة بيانات Aronium ────────────────
 Write-Host ""
-Write-Host "🔍 البحث عن قاعدة بيانات Aronium..." -ForegroundColor Yellow
+Write-Host "─── إنشاء المجلد وإعداد الملفات ────────────────────" -ForegroundColor Yellow
 
-$possiblePaths = @(
-    "$env:LOCALAPPDATA\Aronium\Data\pos.db",
-    "C:\Aronium\Data\pos.db",
-    "C:\Program Files\Aronium\Data\pos.db",
-    "C:\Program Files (x86)\Aronium\Data\pos.db"
-)
+# ── إنشاء مجلد التثبيت ───────────────────────────────────
+New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
 
-$aroniumDb = ""
-foreach ($p in $possiblePaths) {
-    if (Test-Path $p) {
-        $aroniumDb = $p
-        Write-Host "✓ وجدت قاعدة البيانات: $p" -ForegroundColor Green
-        break
-    }
+# ── نسخ sync.py من المجلد الحالي ──────────────────────────
+$scriptSource = Join-Path $PSScriptRoot "sync.py"
+if (Test-Path $scriptSource) {
+    Copy-Item $scriptSource "$INSTALL_DIR\sync.py" -Force
+    Write-Host "✅ تم نسخ sync.py" -ForegroundColor Green
+} else {
+    Write-Host "⚠️  sync.py غير موجود في نفس مجلد install.ps1" -ForegroundColor Yellow
 }
 
-if (-not $aroniumDb) {
-    Write-Host "⚠ لم يتم إيجاد قاعدة البيانات تلقائياً" -ForegroundColor Yellow
-    $aroniumDb = Read-Host "أدخل المسار يدوياً (مثال: C:\Users\user\AppData\Local\Aronium\Data\pos.db)"
-}
-
-# ─── 4. إنشاء مجلد التثبيت ──────────────────────────────
-Write-Host ""
-Write-Host "📁 إنشاء مجلد التثبيت: $INSTALL_DIR" -ForegroundColor Yellow
-
-if (-not (Test-Path $INSTALL_DIR)) {
-    New-Item -ItemType Directory -Path $INSTALL_DIR -Force | Out-Null
-}
-
-# ─── 5. نسخ الملفات ─────────────────────────────────────
-Write-Host "📋 نسخ الملفات..." -ForegroundColor Yellow
-
-$sourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Copy-Item "$sourceDir\sync.py"       "$INSTALL_DIR\sync.py"       -Force
-Copy-Item "$sourceDir\run_silent.vbs" "$INSTALL_DIR\run_silent.vbs" -Force
-
-# ─── 6. كتابة config.json ────────────────────────────────
-Write-Host "⚙  كتابة config.json..." -ForegroundColor Yellow
-
+# ── كتابة config.json ─────────────────────────────────────
 $config = @{
-    branch_id       = $BranchId
-    supabase_url    = $SupabaseUrl
-    supabase_key    = $SupabaseKey
-    aronium_db_path = $aroniumDb
-    branch_name     = $BranchName
-}
-$config | ConvertTo-Json -Depth 2 | Set-Content "$INSTALL_DIR\config.json" -Encoding UTF8
+    branch_id      = $BranchId.Trim()
+    supabase_url   = $SupabaseUrl.Trim()
+    supabase_key   = $SupabaseKey.Trim()
+    aronium_db_path = $AroniumDbPath.Trim()
+    branch_name    = $BranchName.Trim()
+    server_url     = $ServerUrl.Trim()
+} | ConvertTo-Json -Depth 3
 
-# ─── 7. التحقق من Python ────────────────────────────────
-Write-Host "🐍 التحقق من Python..." -ForegroundColor Yellow
+Set-Content -Path "$INSTALL_DIR\config.json" -Value $config -Encoding UTF8
+Write-Host "✅ تم إنشاء config.json" -ForegroundColor Green
 
-$pythonOk = $false
-try {
-    $ver = python --version 2>&1
-    if ($ver -like "Python 3*") {
-        Write-Host "✓ Python موجود: $ver" -ForegroundColor Green
-        $pythonOk = $true
-    }
-} catch {}
+# ── كتابة run_silent.vbs (يشغّل daemon بشكل خفي) ──────────
+$vbsContent = @"
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.CurrentDirectory = "C:\AroniumSync"
+WshShell.Run "python sync.py", 0, False
+"@
+Set-Content -Path "$INSTALL_DIR\run_silent.vbs" -Value $vbsContent -Encoding UTF8
+Write-Host "✅ تم إنشاء run_silent.vbs" -ForegroundColor Green
 
-if (-not $pythonOk) {
-    Write-Host "⬇  تحميل Python 3.11..." -ForegroundColor Yellow
-    $pyInstaller = "$env:TEMP\python-3.11.9.exe"
-    $pyUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
-    
-    try {
-        Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -UseBasicParsing
-        Write-Host "✓ تم التحميل. جاري التثبيت..." -ForegroundColor Green
-        Start-Process -FilePath $pyInstaller -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_pip=1" -Wait
-        Write-Host "✓ تم تثبيت Python" -ForegroundColor Green
-    } catch {
-        Write-Host "❌ فشل تحميل Python. ثبّته يدوياً من python.org" -ForegroundColor Red
-    }
-}
-
-# ─── 8. تسجيل Task Scheduler ────────────────────────────
+# ── إزالة المهمة القديمة إن وجدت ─────────────────────────
 Write-Host ""
-Write-Host "⏰ تسجيل Task Scheduler..." -ForegroundColor Yellow
+Write-Host "─── إعداد Task Scheduler ────────────────────────────" -ForegroundColor Yellow
+schtasks /Delete /TN $TASK_NAME /F 2>&1 | Out-Null
 
-# احذف المهمة القديمة إن وجدت
-Unregister-ScheduledTask -TaskName $TASK_NAME -Confirm:$false -ErrorAction SilentlyContinue
+# ── إنشاء مهمة جدولة تبدأ عند تشغيل الجهاز ──────────────
+# المهمة:
+#   - تبدأ عند تشغيل Windows (AtStartup)
+#   - تعيد التشغيل تلقائياً إذا توقفت (كل دقيقة، 10 مرات)
+#   - لا تتوقف عند الخمول
+#   - تعمل بدون تسجيل دخول المستخدم (SYSTEM account)
 
 $action  = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$INSTALL_DIR\run_silent.vbs`""
-$trigger = New-ScheduledTaskTrigger -Daily -At "00:00AM"
-
-# تكرار كل 5 دقائق لمدة يوم كامل
-$trigger.Repetition = New-Object System.Xml.XmlDocument
-$xmlDoc = New-Object System.Xml.XmlDocument
-
-# نستخدم schtasks لضبط التكرار بدقة
+$trigger = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet `
-    -MultipleInstances IgnoreNew `
+    -MultipleInstances    IgnoreNew `
     -RunOnlyIfNetworkAvailable:$false `
     -DisallowStartIfOnBatteries:$false `
     -StopIfGoingOnBatteries:$false `
-    -StartWhenAvailable
+    -StartWhenAvailable `
+    -ExecutionTimeLimit   (New-TimeSpan -Hours 0) `
+    -RestartCount         10 `
+    -RestartInterval      (New-TimeSpan -Minutes 1)
 
-$principal = New-ScheduledTaskPrincipal -RunLevel Highest -LogonType S4U -UserId "SYSTEM"
+$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
 
-Register-ScheduledTask `
-    -TaskName    $TASK_NAME `
-    -Action      $action `
-    -Trigger     $trigger `
-    -Settings    $settings `
-    -Principal   $principal `
-    -Description "مزامنة مبيعات Aronium POS لمراعي الشمال - $BranchName" `
-    -Force | Out-Null
+$task = New-ScheduledTask `
+    -Action    $action `
+    -Trigger   $trigger `
+    -Settings  $settings `
+    -Principal $principal `
+    -Description "مزامنة مراعي الشمال - يعمل تلقائياً عند بدء الجهاز"
 
-# ضبط التكرار كل 5 دقائق عبر schtasks.exe (أكثر موثوقية)
-schtasks /Change /TN "$TASK_NAME" /RI 5 /DU 9999:59 2>&1 | Out-Null
+Register-ScheduledTask -TaskName $TASK_NAME -InputObject $task -Force | Out-Null
+Write-Host "✅ تم تسجيل المهمة: $TASK_NAME" -ForegroundColor Green
+Write-Host "   • تبدأ تلقائياً عند تشغيل Windows" -ForegroundColor Gray
+Write-Host "   • تعيد التشغيل تلقائياً إذا توقفت (10 محاولات)" -ForegroundColor Gray
 
-Write-Host "✓ تم تسجيل المهمة: $TASK_NAME" -ForegroundColor Green
-
-# ─── 9. اختبار أول مزامنة ───────────────────────────────
+# ── تشغيل فوري الآن (بدون انتظار إعادة تشغيل Windows) ────
 Write-Host ""
-Write-Host "🧪 تشغيل اختبار المزامنة الأول..." -ForegroundColor Yellow
-Write-Host "   (قد يستغرق 10-30 ثانية)" -ForegroundColor Gray
+Write-Host "─── تشغيل السكريبت الآن ────────────────────────────" -ForegroundColor Yellow
 
-try {
-    $proc = Start-Process -FilePath "python" `
-        -ArgumentList "`"$INSTALL_DIR\sync.py`"" `
-        -WorkingDirectory $INSTALL_DIR `
-        -Wait -PassThru -NoNewWindow
-    
-    if ($proc.ExitCode -eq 0) {
-        Write-Host "✓ نجح الاختبار!" -ForegroundColor Green
-    } else {
-        Write-Host "⚠ انتهى بكود $($proc.ExitCode) - تحقق من sync.log" -ForegroundColor Yellow
-    }
-} catch {
-    Write-Host "⚠ تعذّر تشغيل الاختبار: $_" -ForegroundColor Yellow
+# إيقاف أي نسخة قديمة
+taskkill /F /IM python.exe 2>&1 | Out-Null
+
+# تشغيل المهمة فوراً
+Start-ScheduledTask -TaskName $TASK_NAME 2>&1 | Out-Null
+Start-Sleep -Seconds 3
+
+Write-Host "✅ تم تشغيل المهمة!" -ForegroundColor Green
+
+# ── التحقق من النجاح ──────────────────────────────────────
+Write-Host ""
+Write-Host "─── التحقق ──────────────────────────────────────────" -ForegroundColor Yellow
+Start-Sleep -Seconds 5
+
+$pythonProcs = Get-Process python -ErrorAction SilentlyContinue
+if ($pythonProcs) {
+    Write-Host "✅ Python يعمل في الخلفية (PID: $($pythonProcs[0].Id))" -ForegroundColor Green
+} else {
+    Write-Host "⚠️  Python لم يبدأ بعد - قد يحتاج لحظة" -ForegroundColor Yellow
 }
 
-# ─── 10. عرض ملف السجل ──────────────────────────────────
+# عرض آخر سطور من السجل
 if (Test-Path "$INSTALL_DIR\sync.log") {
     Write-Host ""
-    Write-Host "📄 آخر سطور في sync.log:" -ForegroundColor Cyan
-    Get-Content "$INSTALL_DIR\sync.log" -Tail 10 | ForEach-Object {
-        Write-Host "   $_" -ForegroundColor Gray
-    }
+    Write-Host "─── آخر سطور sync.log ───────────────────────────────" -ForegroundColor Yellow
+    Get-Content "$INSTALL_DIR\sync.log" -Tail 5
 }
 
-# ─── انتهى ──────────────────────────────────────────────
 Write-Host ""
-Write-Host "═══════════════════════════════════════" -ForegroundColor Green
+Write-Host "═══════════════════════════════════════════════════" -ForegroundColor Green
 Write-Host "  ✅ اكتمل التثبيت بنجاح!" -ForegroundColor Green
 Write-Host ""
-Write-Host "  الفرع:    $BranchName" -ForegroundColor White
-Write-Host "  المجلد:   $INSTALL_DIR" -ForegroundColor White
-Write-Host "  التكرار:  كل 5 دقائق (24/7)" -ForegroundColor White
-Write-Host "  السجل:    $INSTALL_DIR\sync.log" -ForegroundColor White
-Write-Host "═══════════════════════════════════════" -ForegroundColor Green
+Write-Host "  السكريبت يعمل الآن في الخلفية ويزامن كل 5 دقائق" -ForegroundColor White
+Write-Host "  يفحص الطلبات الفورية كل 30 ثانية" -ForegroundColor White
+Write-Host "  يتحدث تلقائياً من الداشبورد كل ساعتين" -ForegroundColor White
+Write-Host "  يبدأ تلقائياً عند كل تشغيل لـ Windows" -ForegroundColor White
+Write-Host "═══════════════════════════════════════════════════" -ForegroundColor Green
 Write-Host ""
-Write-Host "لتشغيل يدوي: python `"$INSTALL_DIR\sync.py`"" -ForegroundColor Gray
-Write-Host "لمشاهدة السجل: notepad `"$INSTALL_DIR\sync.log`"" -ForegroundColor Gray
+Pause

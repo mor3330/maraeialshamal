@@ -1,5 +1,6 @@
 import ReviewWithShortage from "@/components/cashier/ReviewWithShortage";
 
-export default function ReviewPage({ params }: { params: { slug: string } }) {
-  return <ReviewWithShortage slug={params.slug} />;
+export default async function ReviewPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  return <ReviewWithShortage slug={slug} />;
 }

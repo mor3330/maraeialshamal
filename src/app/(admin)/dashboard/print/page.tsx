@@ -532,6 +532,142 @@ function SalesReportPrint({ data }: { data: SalesData }) {
 }
 
 /* ══════════════════════════════════════════
+   Print: تقرير المبيعات الخارجية
+══════════════════════════════════════════ */
+interface ExtSale {
+  id: string;
+  buyer_id: string | null;
+  supplier_id: string | null;
+  item_type_id: string;
+  quantity: number; weight: number; price: number;
+  sale_date: string; notes?: string;
+  buyers?:    { name: string; phone?: string } | null;
+  suppliers?: { name: string } | null;
+  item_types?:{ name: string } | null;
+}
+
+function ExternalSalesReportPrint({ data, range }: { data: ExtSale[]; range: { from: string; to: string } }) {
+  // تجميع حسب المشترٍ ثم حسب التاريخ
+  const byBuyer: Record<string, ExtSale[]> = {};
+  data.forEach(s => {
+    const key = s.buyer_id ?? "__none__";
+    if (!byBuyer[key]) byBuyer[key] = [];
+    byBuyer[key].push(s);
+  });
+
+  const totalQty    = data.reduce((a, s) => a + toN(s.quantity), 0);
+  const totalWeight = data.reduce((a, s) => a + toN(s.weight),   0);
+  const totalPrice  = data.reduce((a, s) => a + toN(s.price),    0);
+
+  if (data.length === 0) {
+    return (
+      <div className="text-gray-900" dir="rtl">
+        <div className="rounded-2xl border border-purple-200 bg-purple-50 p-10 text-center">
+          <p className="text-purple-700 font-black text-xl mb-2">لا توجد مبيعات خارجية في هذه الفترة</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-gray-900 font-[Readex_Pro,Tajawal,sans-serif]" dir="rtl">
+
+      {/* ── ملخص KPIs ── */}
+      <div className="kpi-grid grid grid-cols-3 gap-4 mb-6">
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-center">
+          <p className="text-blue-600 text-xs font-medium mb-1">إجمالي العدد</p>
+          <p className="text-3xl font-black text-blue-700 ltr-num" dir="ltr">{fmt(totalQty)}</p>
+          <p className="text-blue-500 text-xs mt-1">رأس</p>
+        </div>
+        <div className="rounded-2xl border border-green-200 bg-green-50 p-5 text-center">
+          <p className="text-green-600 text-xs font-medium mb-1">إجمالي الوزن</p>
+          <p className="text-3xl font-black text-green-700 ltr-num" dir="ltr">{fmt(totalWeight, 2)}</p>
+          <p className="text-green-500 text-xs mt-1">كجم</p>
+        </div>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
+          <p className="text-amber-600 text-xs font-medium mb-1">إجمالي القيمة</p>
+          <p className="text-3xl font-black text-amber-700 ltr-num" dir="ltr">{fmt(totalPrice, 2)}</p>
+          <p className="text-amber-500 text-xs mt-1">ريال</p>
+        </div>
+      </div>
+
+      {/* ── جداول حسب المشترٍ ── */}
+      {Object.entries(byBuyer).map(([key, bSales]) => {
+        const sample = bSales[0];
+        const buyerName = key === "__none__" ? "بدون مشترٍ" : (sample?.buyers?.name ?? "مشترٍ");
+        const buyerPhone = key === "__none__" ? null : sample?.buyers?.phone;
+        const bQty    = bSales.reduce((a, s) => a + toN(s.quantity), 0);
+        const bWeight = bSales.reduce((a, s) => a + toN(s.weight),   0);
+        const bPrice  = bSales.reduce((a, s) => a + toN(s.price),    0);
+
+        return (
+          <div key={key} className="branch-block rounded-2xl border border-gray-200 overflow-hidden mb-4">
+            {/* رأس المشترٍ */}
+            <div className="branch-header flex items-center justify-between px-5 py-3 bg-[#1a2420] text-white" dir="rtl">
+              <div>
+                <span className="font-black text-base">{buyerName}</span>
+                {buyerPhone && <span className="text-xs opacity-70 mr-3" dir="ltr">{buyerPhone}</span>}
+              </div>
+              <span className="font-black text-amber-300 ltr-num" dir="ltr">{fmt(bPrice, 2)} ر.س</span>
+            </div>
+            {/* جدول */}
+            <table style={{width:"100%", tableLayout:"fixed", fontSize:"13px", borderCollapse:"collapse"}} dir="ltr">
+              <colgroup>
+                <col style={{width:"12%"}}/><col style={{width:"20%"}}/><col style={{width:"20%"}}/>
+                <col style={{width:"16%"}}/><col style={{width:"16%"}}/><col style={{width:"16%"}}/>
+              </colgroup>
+              <thead>
+                <tr style={{background:"#f0f7f4", borderBottom:"2px solid #d1e9de", fontSize:"12px", fontWeight:700}}>
+                  <th style={{padding:"8px 10px", textAlign:"right", color:"#555", borderRight:"1px solid #e5e7eb"}}>التاريخ</th>
+                  <th style={{padding:"8px 10px", textAlign:"right", color:"#555", borderRight:"1px solid #e5e7eb"}}>المورد</th>
+                  <th style={{padding:"8px 10px", textAlign:"right", color:"#555", borderRight:"1px solid #e5e7eb"}}>النوع</th>
+                  <th style={{padding:"8px 8px", textAlign:"center", color:"#0077cc", borderRight:"1px solid #e5e7eb"}}>العدد</th>
+                  <th style={{padding:"8px 8px", textAlign:"center", color:"#005f40", borderRight:"1px solid #e5e7eb"}}>الوزن (كجم)</th>
+                  <th style={{padding:"8px 8px", textAlign:"center", color:"#b45309"}}>السعر (ر.س)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bSales.map((s, idx) => (
+                  <tr key={s.id} style={{background: idx%2===0?"#fff":"#fafafa", borderBottom:"1px solid #eee"}}>
+                    <td style={{padding:"7px 10px", color:"#888", fontSize:"11px", borderRight:"1px solid #eee"}}>{s.sale_date}</td>
+                    <td style={{padding:"7px 10px", color:"#666", borderRight:"1px solid #eee"}}>{s.suppliers?.name ?? "—"}</td>
+                    <td style={{padding:"7px 10px", fontWeight:600, borderRight:"1px solid #eee"}}>{s.item_types?.name ?? "—"}</td>
+                    <td style={{padding:"7px 8px", textAlign:"center", color:"#0077cc", fontWeight:700, borderRight:"1px solid #eee"}}>{fmt(toN(s.quantity))}</td>
+                    <td style={{padding:"7px 8px", textAlign:"center", color:"#005f40", fontWeight:700, borderRight:"1px solid #eee"}}>{fmt(toN(s.weight), 2)}</td>
+                    <td style={{padding:"7px 8px", textAlign:"center", color:"#b45309", fontWeight:700}}>{fmt(toN(s.price), 2)}</td>
+                  </tr>
+                ))}
+                {/* صف الإجمالي للمشترٍ */}
+                <tr style={{background:"#e8f5ee", borderTop:"2px solid #a8d5ba", fontWeight:800}}>
+                  <td colSpan={3} style={{padding:"8px 10px", color:"#1a3c2f"}}>إجمالي {buyerName}</td>
+                  <td style={{padding:"8px 8px", textAlign:"center", color:"#0077cc"}}>{fmt(bQty)}</td>
+                  <td style={{padding:"8px 8px", textAlign:"center", color:"#005f40"}}>{fmt(bWeight, 2)}</td>
+                  <td style={{padding:"8px 8px", textAlign:"center", color:"#b45309"}}>{fmt(bPrice, 2)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+
+      {/* ── الإجمالي الكلي ── */}
+      <div className="summary-block rounded-2xl border border-gray-200 overflow-hidden">
+        <table style={{width:"100%", fontSize:"14px", borderCollapse:"collapse"}} dir="ltr">
+          <tfoot>
+            <tr style={{background:"#1a2420", color:"#fff", fontWeight:800}}>
+              <td style={{padding:"12px 16px", textAlign:"right"}}>الإجمالي الكلي — {data.length} سجل</td>
+              <td style={{padding:"12px 12px", textAlign:"center", color:"#93c5fd"}}>{fmt(totalQty)} رأس</td>
+              <td style={{padding:"12px 12px", textAlign:"center", color:"#86efac"}}>{fmt(totalWeight, 2)} كجم</td>
+              <td style={{padding:"12px 12px", textAlign:"center", color:"#fde68a"}}>{fmt(totalPrice, 2)} ر.س</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
    Print: Wrapper مع هيدر وفوتر
 ══════════════════════════════════════════ */
 function PrintWrapper({ reportType, range, children, loading }: {
@@ -597,6 +733,7 @@ export default function PrintReportsPage() {
   const [loading, setLoading] = useState(false);
   const [profitData, setProfitData] = useState<ProfitData | null>(null);
   const [salesData, setSalesData] = useState<SalesData | null>(null);
+  const [externalSalesData, setExternalSalesData] = useState<any[] | null>(null);
   const [error, setError] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -607,6 +744,20 @@ export default function PrintReportsPage() {
       if (!res.ok) { setError("تعذر تحميل البيانات"); return; }
       const json = await res.json();
       setProfitData(json);
+    } catch {
+      setError("تعذر الاتصال بالخادم");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadExternalSalesData = useCallback(async (from: string, to: string) => {
+    setLoading(true); setError(""); setExternalSalesData(null);
+    try {
+      const res = await fetch(`/api/external-sales?dateFrom=${from}&dateTo=${to}`);
+      if (!res.ok) { setError("تعذر تحميل البيانات"); return; }
+      const json = await res.json();
+      setExternalSalesData(json.sales ?? []);
     } catch {
       setError("تعذر الاتصال بالخادم");
     } finally {
@@ -727,8 +878,9 @@ export default function PrintReportsPage() {
               </button>
               <button disabled={!range.from || !range.to} onClick={() => {
                 setStep(3);
-                if (selectedType === "profit") loadProfitData(range.from, range.to);
-                if (selectedType === "sales")  loadSalesData(range.from, range.to);
+                if (selectedType === "profit")          loadProfitData(range.from, range.to);
+                if (selectedType === "sales")           loadSalesData(range.from, range.to);
+                if (selectedType === "external-sales")  loadExternalSalesData(range.from, range.to);
               }}
                 className="rounded-2xl bg-green hover:bg-green-dark disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold px-8 py-3.5 text-sm transition-all hover:scale-[1.02]">
                 معاينة التقرير →
@@ -759,10 +911,11 @@ export default function PrintReportsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                {(selectedType === "profit" || selectedType === "sales") && (
+                {(selectedType === "profit" || selectedType === "sales" || selectedType === "external-sales") && (
                   <button onClick={() => {
-                    if (selectedType === "profit") loadProfitData(range.from, range.to);
-                    if (selectedType === "sales")  loadSalesData(range.from, range.to);
+                    if (selectedType === "profit")         loadProfitData(range.from, range.to);
+                    if (selectedType === "sales")          loadSalesData(range.from, range.to);
+                    if (selectedType === "external-sales") loadExternalSalesData(range.from, range.to);
                   }}
                     className="rounded-xl border border-line bg-card-hi px-4 py-2 text-sm text-muted hover:text-cream transition-all">
                     ↻ تحديث
@@ -794,14 +947,11 @@ export default function PrintReportsPage() {
                 {selectedType === "purchases" && (
                   <div className="text-center py-12 text-gray-400">تقرير المشتريات — قريباً</div>
                 )}
-                {selectedType === "external-sales" && (
-                  <div className="text-gray-900 font-[Readex_Pro,Tajawal,sans-serif]" dir="rtl">
-                    <div className="rounded-2xl border border-purple-200 bg-purple-50 p-10 text-center">
-                      <div className="text-5xl mb-4">🔄</div>
-                      <p className="text-purple-700 font-black text-xl mb-2">تقرير المبيعات الخارجية</p>
-                      <p className="text-purple-500 text-sm">هذا التقرير قيد التطوير — سيكون متاحاً قريباً</p>
-                    </div>
-                  </div>
+                {selectedType === "external-sales" && externalSalesData && (
+                  <ExternalSalesReportPrint data={externalSalesData} range={range} />
+                )}
+                {selectedType === "external-sales" && !externalSalesData && !loading && (
+                  <div className="text-center py-12 text-gray-400">لا توجد مبيعات خارجية في هذه الفترة</div>
                 )}
                 {selectedType === "exports" && (
                   <div className="text-gray-900 font-[Readex_Pro,Tajawal,sans-serif]" dir="rtl">

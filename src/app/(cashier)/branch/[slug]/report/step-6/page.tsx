@@ -1,6 +1,7 @@
-// الخطوة السادسة: المصروفات والملاحظات (نُقلت من step-7)
+// الخطوة السادسة: المصروفات والملاحظات
 import Step6ExpensesClient from "@/components/cashier/Step6ExpensesClient";
 
-export default function Step6Page({ params }: { params: { slug: string } }) {
-  return <Step6ExpensesClient slug={params.slug} />;
+export default async function Step6Page({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  return <Step6ExpensesClient slug={slug} />;
 }

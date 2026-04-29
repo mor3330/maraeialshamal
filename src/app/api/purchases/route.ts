@@ -61,7 +61,7 @@ export async function POST(request: Request) {
         supplier_id: supplier_id || null,
         purchase_date: purchase_date || new Date().toISOString().split('T')[0],
         item_type_id,
-        quantity: parseInt(quantity),
+        quantity: parseFloat(quantity),
         weight: parseFloat(weight),
         price: parseFloat(price),
         notes: notes || null,
@@ -98,7 +98,7 @@ export async function PATCH(request: Request) {
       .update({
         supplier_id: supplier_id || null,
         item_type_id,
-        quantity: parseInt(quantity),
+        quantity: parseFloat(quantity),
         weight: parseFloat(weight),
         price: parseFloat(price),
       })

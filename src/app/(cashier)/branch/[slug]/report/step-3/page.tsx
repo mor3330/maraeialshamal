@@ -1,12 +1,6 @@
 import DynamicStepClient from "@/components/cashier/DynamicStepClient";
 
-export default function Step3Page({ params }: { params: { slug: string } }) {
-  return (
-    <DynamicStepClient 
-      slug={params.slug} 
-      step={3} 
-      stepLabel="تفاصيل المبيعات" 
-      nextStep={4}
-    />
-  );
+export default async function Step3Page({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  return <DynamicStepClient slug={slug} step={3} stepLabel="تفاصيل المبيعات" nextStep={4} />;
 }
