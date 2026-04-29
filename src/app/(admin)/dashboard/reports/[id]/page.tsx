@@ -726,6 +726,11 @@ export default function ReportDetailPage() {
                       {prevBal?.previousDate && (
                         <p className="text-amber text-xs mt-2 font-medium">📅 تاريخ التقرير السابق: {fmtDate(prevBal.previousDate)}</p>
                       )}
+                      {prevBal?.previousReportId && prevBal?.previousStatus && prevBal.previousStatus !== "submitted" && prevBal.previousStatus !== "approved" && (
+                        <p className="text-blue-400 text-xs mt-1">
+                          ℹ️ التقرير السابق حالته: <strong>{STATUS_MAP[prevBal.previousStatus]?.label ?? prevBal.previousStatus}</strong> — التعديل سيُطبَّق عليه
+                        </p>
+                      )}
                       {!prevBal?.previousReportId && (
                         <p className="text-red text-xs mt-2">⛔ لا يوجد تقرير سابق مرفوع — لن يتم حفظ هذه القيم</p>
                       )}

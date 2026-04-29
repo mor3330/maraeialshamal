@@ -19,13 +19,12 @@ export async function GET(request: NextRequest) {
     current.setDate(current.getDate() - 1);
     const previousDate = current.toISOString().split("T")[0];
 
-    // جلب تقرير اليوم السابق — يقبل submitted أو approved
+    // جلب تقرير اليوم السابق — يقبل أي حالة
     const { data: prev } = await supabase
       .from("daily_reports" as any)
-      .select("id, report_date, notes")
+      .select("id, report_date, notes, status")
       .eq("branch_id", branchId)
       .eq("report_date", previousDate)
-      .in("status", ["submitted", "approved"])
       .maybeSingle();
 
     if (!prev || !(prev as any).notes) {
@@ -49,6 +48,7 @@ export async function GET(request: NextRequest) {
         hasPrevious: true,
         previousDate: (prev as any).report_date,
         previousReportId: (prev as any).id,
+        previousStatus: (prev as any).status,
         hashi,
         sheep,
         beef,
