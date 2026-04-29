@@ -18,6 +18,7 @@ interface SyncLogRow {
   sales_count: number | null;
   status: string | null;
   error_message: string | null;
+  agent_version: string | null;
 }
 
 function getRiyadhDateRange(period: string) {
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
   // ─── آخر مزامنة لكل فرع (فقط السجلات المكتملة، بدون running) ───
   const { data: rawLogs } = await (supabase as any)
     .from("sync_logs")
-    .select("branch_id, sync_end, sync_start, sales_count, status, error_message")
+    .select("branch_id, sync_end, sync_start, sales_count, status, error_message, agent_version")
     .not("sync_end", "is", null)
     .order("sync_end", { ascending: false });
   const logs = (rawLogs ?? []) as SyncLogRow[];
@@ -99,6 +100,7 @@ export async function GET(request: NextRequest) {
     cash: number; network: number; transfer: number; deferred: number;
     lastSync: string | null; lastSyncStatus: string | null;
     lastSyncError: string | null; syncedToday: boolean;
+    agentVersion: string | null;
   };
 
   const branchMap: Record<string, BranchStat> = {};
@@ -111,6 +113,7 @@ export async function GET(request: NextRequest) {
       lastSyncStatus: lastSyncPerBranch[b.id]?.status ?? null,
       lastSyncError:  lastSyncPerBranch[b.id]?.error_message ?? null,
       syncedToday: false,
+      agentVersion: lastSyncPerBranch[b.id]?.agent_version ?? null,
     };
   }
 
@@ -157,6 +160,14 @@ export async function GET(request: NextRequest) {
   const branchStats = Object.values(branchMap);
   const r = (n: number) => Math.round(n * 100) / 100;
 
+  // ─── الإصدار الأخير من sync_agent ───
+  const { data: agentRow } = await (supabase as any)
+    .from("sync_agent")
+    .select("version")
+    .eq("id", "main")
+    .maybeSingle();
+  const latestVersion: string = agentRow?.version ?? "2.3";
+
   const summary = {
     totalSales:    r(branchStats.reduce((a, b) => a + b.totalSales, 0)),
     invoiceCount:  branchStats.reduce((a, b) => a + b.invoiceCount, 0),
@@ -164,9 +175,11 @@ export async function GET(request: NextRequest) {
     totalNetwork:  r(branchStats.reduce((a, b) => a + b.network, 0)),
     totalTransfer: r(branchStats.reduce((a, b) => a + b.transfer, 0)),
     totalDeferred: r(branchStats.reduce((a, b) => a + b.deferred, 0)),
-    branchesWithData: branchStats.filter(b => b.invoiceCount > 0).length,
-    branchesTotal:    branchStats.length,
-    syncedBranches:   branchStats.filter(b => b.syncedToday).length,
+    branchesWithData:  branchStats.filter(b => b.invoiceCount > 0).length,
+    branchesTotal:     branchStats.length,
+    syncedBranches:    branchStats.filter(b => b.syncedToday).length,
+    updatedBranches:   branchStats.filter(b => b.pos_sync_enabled && b.agentVersion === latestVersion).length,
+    latestVersion,
   };
 
   return NextResponse.json({ range, period, summary, branches: branchStats });

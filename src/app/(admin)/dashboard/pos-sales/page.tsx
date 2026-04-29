@@ -12,11 +12,13 @@ interface BranchStat {
   cash: number; network: number; transfer: number; deferred: number;
   lastSync: string | null; lastSyncStatus: string | null;
   lastSyncError: string | null; syncedToday: boolean;
+  agentVersion: string | null;
 }
 interface Summary {
   totalSales: number; invoiceCount: number;
   totalCash: number; totalNetwork: number; totalTransfer: number; totalDeferred: number;
   branchesWithData: number; branchesTotal: number; syncedBranches: number;
+  updatedBranches: number; latestVersion: string;
 }
 interface DashData {
   range: { from: string; to: string };
@@ -26,6 +28,16 @@ interface DashData {
 }
 
 const fmtNum = (n: number) => n.toLocaleString("ar-SA-u-nu-latn", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+// شارة إصدار السكريبت
+function versionBadge(b: BranchStat, latestVersion: string) {
+  if (!b.pos_sync_enabled) return null;
+  if (!b.agentVersion)
+    return <span className="text-xs px-1.5 py-0.5 rounded bg-card-hi text-muted border border-line" title="لم يزامن بعد">—</span>;
+  if (b.agentVersion === latestVersion)
+    return <span className="text-xs px-1.5 py-0.5 rounded bg-green/10 text-green border border-green/20" title={`إصدار محدّث v${b.agentVersion}`}>v{b.agentVersion} ✓</span>;
+  return <span className="text-xs px-1.5 py-0.5 rounded bg-amber/10 text-amber border border-amber/20" title={`إصدار قديم — الجديد: v${latestVersion}`}>v{b.agentVersion} ⚠</span>;
+}
 
 function syncBadge(b: BranchStat) {
   if (!b.pos_sync_enabled)
@@ -251,6 +263,60 @@ export default function PosSalesPage() {
             </div>
           </div>
 
+          {/* ── تقدم التحديث ── */}
+          {data.summary.latestVersion && (
+            <div className="bg-card border border-sky-400/20 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <h3 className="text-cream text-sm font-bold flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-sky-400 inline-block"></span>
+                    تقدم التحديث — v{data.summary.latestVersion}
+                  </h3>
+                  <p className="text-muted text-xs mt-0.5">
+                    {data.summary.updatedBranches} من {data.branches.filter(b => b.pos_sync_enabled).length} فرع حدّث التطبيق
+                    {data.summary.updatedBranches === data.branches.filter(b => b.pos_sync_enabled).length
+                      ? " — ✅ جميع الفروع محدّثة!"
+                      : " — الباقية ستحدّث خلال ساعتين تلقائياً"}
+                  </p>
+                </div>
+                <span className="text-sky-400 font-bold text-lg">
+                  {data.summary.updatedBranches} / {data.branches.filter(b => b.pos_sync_enabled).length}
+                </span>
+              </div>
+              {/* شريط التقدم */}
+              <div className="h-2 bg-card-hi rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-sky-400 rounded-full transition-all duration-700"
+                  style={{
+                    width: `${Math.round(
+                      (data.summary.updatedBranches / Math.max(1, data.branches.filter(b => b.pos_sync_enabled).length)) * 100
+                    )}%`
+                  }}
+                />
+              </div>
+              {/* قائمة الفروع التي لم تحدّث بعد */}
+              {data.branches.filter(b => b.pos_sync_enabled && b.agentVersion !== data.summary.latestVersion).length > 0 && (
+                <details className="cursor-pointer">
+                  <summary className="text-xs text-muted hover:text-cream transition-colors select-none">
+                    ▾ {data.branches.filter(b => b.pos_sync_enabled && b.agentVersion !== data.summary.latestVersion).length} فرع لم يحدّث بعد (اضغط للعرض)
+                  </summary>
+                  <div className="mt-2 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {data.branches
+                      .filter(b => b.pos_sync_enabled && b.agentVersion !== data.summary.latestVersion)
+                      .map(b => (
+                        <div key={b.id} className="flex items-center justify-between bg-bg rounded-lg px-2 py-1.5">
+                          <span className="text-muted text-xs truncate">{b.name}</span>
+                          <span className="text-xs text-amber/80 mr-1 shrink-0">
+                            {b.agentVersion ? `v${b.agentVersion}` : "—"}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+
           {/* ── Payment Methods ── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
@@ -283,6 +349,7 @@ export default function PosSalesPage() {
                   <th className="text-center px-3 py-3 hidden lg:table-cell">كاش</th>
                   <th className="text-center px-3 py-3 hidden lg:table-cell">شبكة</th>
                   <th className="text-center px-3 py-3">آخر مزامنة</th>
+                  <th className="text-center px-3 py-3 hidden md:table-cell" title="إصدار sync.py">الإصدار</th>
                   <th className="text-center px-3 py-3">مزامنة</th>
                   <th className="text-center px-3 py-3">POS</th>
                   <th className="text-center px-3 py-3 hidden md:table-cell">تفاصيل</th>
@@ -317,6 +384,11 @@ export default function PosSalesPage() {
                     <td className="text-center px-3 py-3 hidden lg:table-cell text-muted ltr-num" dir="ltr">{fmtNum(b.cash)}</td>
                     <td className="text-center px-3 py-3 hidden lg:table-cell text-muted ltr-num" dir="ltr">{fmtNum(b.network)}</td>
                     <td className="text-center px-3 py-3">{syncBadge(b)}</td>
+
+                    {/* إصدار السكريبت */}
+                    <td className="text-center px-3 py-3 hidden md:table-cell">
+                      {versionBadge(b, data.summary.latestVersion)}
+                    </td>
 
                     {/* زر مزامنة فورية */}
                     <td className="text-center px-3 py-3">
@@ -382,7 +454,7 @@ export default function PosSalesPage() {
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="text-center py-12 text-muted">لا توجد نتائج</td>
+                    <td colSpan={10} className="text-center py-12 text-muted">لا توجد نتائج</td>
                   </tr>
                 )}
               </tbody>

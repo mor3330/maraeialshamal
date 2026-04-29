@@ -411,6 +411,7 @@ def log_sync_start(url, key, branch_id, note=""):
             "branch_id":     branch_id,
             "status":        "running",
             "sync_start":    datetime.now(timezone.utc).isoformat(),
+            "agent_version": AGENT_VERSION,
             "error_message": note or None,
         })
         if result and isinstance(result, list):
