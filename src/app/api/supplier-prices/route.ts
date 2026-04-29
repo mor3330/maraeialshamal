@@ -37,14 +37,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "البيانات ناقصة" }, { status: 400 });
     }
     
+    // upsert: إذا كان السعر موجوداً → يحدّثه، وإذا لم يكن موجوداً → يضيفه
     const { data, error } = await supabase
       .from("supplier_item_prices")
-      .insert([{ 
-        supplier_id,
-        item_type_id,
-        price_per_unit: parseFloat(price_per_unit),
-        pricing_method: pricing_method || 'quantity'
-      }])
+      .upsert(
+        { 
+          supplier_id,
+          item_type_id,
+          price_per_unit: parseFloat(price_per_unit),
+          pricing_method: pricing_method || 'quantity',
+          is_active: true,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: "supplier_id,item_type_id" }
+      )
       .select()
       .single();
     
