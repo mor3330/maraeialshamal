@@ -102,9 +102,11 @@ type EditData = {
   s5_hashi_offal: string; s5_hashi_rem: string;
   s5_sheep_offal: string; s5_sheep_rem: string;
   s5_beef_offal: string;  s5_beef_rem: string;
+  // رصيد اليوم السابق (من تقرير أمس step5Named)
+  prev_hashi: string; prev_sheep: string; prev_beef: string;
 };
 
-const TABS = ["💰 المبيعات", "🥩 الوارد", "📊 مبيعات الوزن", "📤 الصادر", "📦 المتبقي"];
+const TABS = ["💰 المبيعات", "🥩 الوارد", "📊 مبيعات الوزن", "📤 الصادر", "📦 المتبقي", "⏮ رصيد السابق"];
 
 export default function ReportDetailPage() {
   const params = useParams(), router = useRouter();
@@ -136,6 +138,7 @@ export default function ReportDetailPage() {
     s3_hashi:"", s3_sheep:"", s3_beef:"",
     s4_hashi_out:"", s4_hashi_to:"", s4_sheep_out:"", s4_sheep_to:"", s4_beef_out:"", s4_beef_to:"",
     s5_hashi_offal:"", s5_hashi_rem:"", s5_sheep_offal:"", s5_sheep_rem:"", s5_beef_offal:"", s5_beef_rem:"",
+    prev_hashi:"", prev_sheep:"", prev_beef:"",
   });
 
   useEffect(() => { if (reportId) loadReport(); }, [reportId]);
@@ -179,6 +182,7 @@ export default function ReportDetailPage() {
     const s1 = data.stepData?.step1 || {}, s3 = data.stepData?.step3 || {};
     const s4 = data.stepData?.step4 || {}, s5 = data.stepData?.step5 || {};
     const gp = (code: string) => String(toN(p.find((x: any) => x.payment_methods?.code === code)?.amount || fromNotes(r, code)));
+    const pb = prevBal || { hashi: 0, sheep: 0, beef: 0 };
     setEd({
       total_sales: String(toN(r.total_sales)), invoice_count: String(toN(r.invoice_count)),
       returns_value: String(toN(r.returns_value)), discounts_value: String(toN(r.discounts_value)),
@@ -191,6 +195,7 @@ export default function ReportDetailPage() {
       s5_hashi_offal: String(toN(s5.hashi_offal)), s5_hashi_rem: String(toN(s5.hashi_remaining)),
       s5_sheep_offal: String(toN(s5.sheep_offal)), s5_sheep_rem: String(toN(s5.sheep_remaining)),
       s5_beef_offal:  String(toN(s5.beef_offal)),  s5_beef_rem:  String(toN(s5.beef_remaining)),
+      prev_hashi: String(toN(pb.hashi)), prev_sheep: String(toN(pb.sheep)), prev_beef: String(toN(pb.beef)),
     });
     setActiveTab(0);
     setShowEditModal(true);
@@ -233,6 +238,30 @@ export default function ReportDetailPage() {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "فشل الحفظ"); }
+
+      // ── حفظ رصيد اليوم السابق (إذا وُجد تقرير سابق ويختلف) ──
+      if (prevBal?.previousReportId) {
+        const prevChanged =
+          Math.abs(pf(ed.prev_hashi) - toN(prevBal.hashi)) > 0.001 ||
+          Math.abs(pf(ed.prev_sheep) - toN(prevBal.sheep)) > 0.001 ||
+          Math.abs(pf(ed.prev_beef)  - toN(prevBal.beef))  > 0.001;
+        if (prevChanged) {
+          const prevBody = {
+            stepDataUpdate: {
+              step5Named: {
+                hashi_remaining: pf(ed.prev_hashi),
+                sheep_remaining: pf(ed.prev_sheep),
+                beef_remaining:  pf(ed.prev_beef),
+              },
+            },
+          };
+          const prevRes = await fetch(`/api/admin/reports/${prevBal.previousReportId}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prevBody),
+          });
+          if (!prevRes.ok) throw new Error("فشل حفظ رصيد اليوم السابق");
+        }
+      }
+
       setShowEditModal(false);
       await loadReport();
       alert("✓ تم حفظ التعديلات بنجاح");
@@ -682,6 +711,57 @@ export default function ReportDetailPage() {
                         </div>
                       ))}
                     </div>
+                  </>
+                )}
+
+                {/* تبويب 5: رصيد اليوم السابق */}
+                {activeTab === 5 && (
+                  <>
+                    <div className="rounded-2xl border border-amber/20 bg-amber/5 p-4 mb-2">
+                      <p className="text-amber text-xs font-bold mb-1">⚠️ تنبيه</p>
+                      <p className="text-muted text-xs leading-relaxed">
+                        هذه القيم هي <strong className="text-cream">رصيد أمس المتبقي</strong> المأخوذ من تقرير اليوم السابق.
+                        تعديلها سيُحدّث <strong className="text-cream">step5Named (المتبقي)</strong> في تقرير اليوم السابق مباشرة.
+                      </p>
+                      {prevBal?.previousDate && (
+                        <p className="text-amber text-xs mt-2 font-medium">📅 تاريخ التقرير السابق: {fmtDate(prevBal.previousDate)}</p>
+                      )}
+                      {!prevBal?.previousReportId && (
+                        <p className="text-red text-xs mt-2">⛔ لا يوجد تقرير سابق مرفوع — لن يتم حفظ هذه القيم</p>
+                      )}
+                    </div>
+                    <div className="bg-card-hi rounded-2xl p-4 space-y-3">
+                      <p className="text-cream text-sm font-bold mb-3">رصيد اليوم السابق (كجم)</p>
+                      <div className="grid grid-cols-3 gap-3">
+                        <Field label="🐄 حاشي (كجم)" value={ed.prev_hashi} onChange={v=>upd("prev_hashi",v)}/>
+                        <Field label="🐑 غنم (كجم)"  value={ed.prev_sheep} onChange={v=>upd("prev_sheep",v)}/>
+                        <Field label="🐂 عجل (كجم)"  value={ed.prev_beef}  onChange={v=>upd("prev_beef",v)}/>
+                      </div>
+                    </div>
+                    {/* مقارنة القيم الحالية مقابل الجديدة */}
+                    {prevBal && (
+                      <div className="bg-card-hi rounded-xl p-3 text-xs space-y-1.5">
+                        <p className="text-muted font-semibold mb-2">المقارنة:</p>
+                        {[["حاشي","hashi","prev_hashi"],["غنم","sheep","prev_sheep"],["عجل","beef","prev_beef"]].map(([label, key, edKey]) => {
+                          const oldVal = toN(prevBal[key]);
+                          const newVal = pf(ed[edKey as keyof EditData]);
+                          const changed = Math.abs(oldVal - newVal) > 0.001;
+                          return (
+                            <div key={key} className="flex items-center justify-between">
+                              <span className="text-muted">{label}:</span>
+                              <div className="flex items-center gap-2">
+                                <span className={`ltr-num ${changed?"text-red/70 line-through":"text-cream"}`} dir="ltr">{oldVal.toFixed(2)}</span>
+                                {changed && <>
+                                  <span className="text-muted">→</span>
+                                  <span className="text-green font-bold ltr-num" dir="ltr">{newVal.toFixed(2)}</span>
+                                </>}
+                                <span className="text-muted">كجم</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </>
                 )}
               </div>
