@@ -561,23 +561,31 @@ function PurchasesReportPrint({ data }: { data: PurchaseRow[] }) {
 
   /* تجميع حسب نوع الحيوان */
   const animalTypes = [
-    { key: "hashi", label: "🐄 حاشي",   nameAr: ["حاشي", "ماشية", "بقر"], nameEn: ["hashi", "cattle", "cow"] },
-    { key: "sheep", label: "🐑 غنم",    nameAr: ["غنم", "خروف", "ضأن"],  nameEn: ["sheep", "lamb"]           },
-    { key: "beef",  label: "🐂 عجل",    nameAr: ["عجل", "تلو"],          nameEn: ["beef", "veal", "calf"]    },
+    { key: "hashi", label: "حاشي", nameAr: ["حاشي", "ماشية", "بقر"], nameEn: ["hashi", "cattle", "cow"] },
+    { key: "sheep", label: "غنم",  nameAr: ["غنم", "خروف", "ضأن"],  nameEn: ["sheep", "lamb"]           },
+    { key: "beef",  label: "عجل",  nameAr: ["عجل", "تلو"],          nameEn: ["beef", "veal", "calf"]    },
   ];
+  const offalKeywordsAr = ["كبدة","كراعين","مخلفات","رقبة","كوارع","نخاع","طحال","قلب","كرش","مصران","ركس","ذنب"];
   const matchAnimal = (r: PurchaseRow, nameArList: string[], nameEnList: string[]) => {
     const nameAr = (r.item_types?.name ?? "").toLowerCase();
     const nameEn = (r.item_types?.name_en ?? "").toLowerCase();
     return nameArList.some(n => nameAr.includes(n)) || nameEnList.some(n => nameEn.includes(n));
   };
-  const byAnimal: Record<string, { qty: number; weight: number }> = {};
+  const isOffal = (r: PurchaseRow) => {
+    const nameAr = (r.item_types?.name ?? "").toLowerCase();
+    return offalKeywordsAr.some(k => nameAr.includes(k));
+  };
+  const byAnimal: Record<string, { qty: number; weight: number; price: number }> = {};
   animalTypes.forEach(at => {
     const rows = data.filter(r => matchAnimal(r, at.nameAr, at.nameEn));
     byAnimal[at.key] = {
       qty:    rows.reduce((a, r) => a + toN(r.quantity), 0),
       weight: rows.reduce((a, r) => a + toN(r.weight),   0),
+      price:  rows.reduce((a, r) => a + toN(r.price),    0),
     };
   });
+  const offalRows = data.filter(r => isOffal(r));
+  const offalTotalPrice = offalRows.reduce((a, r) => a + toN(r.price), 0);
 
   /* تجميع حسب الفرع */
   const byBranch: Record<string, PurchaseRow[]> = {};
@@ -604,41 +612,59 @@ function PurchasesReportPrint({ data }: { data: PurchaseRow[] }) {
       {/* ── KPI ── */}
       <div className="kpi-grid grid grid-cols-3 gap-4 mb-6">
 
-        {/* إجمالي العدد مع تفصيل */}
+        {/* العدد — تفصيل حسب الصنف فقط */}
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <p className="text-blue-600 text-xs font-medium mb-1 text-center">إجمالي العدد</p>
-          <p className="text-3xl font-black text-blue-700 ltr-num text-center" dir="ltr">{fmt(totalQty)}</p>
-          <p className="text-blue-500 text-xs text-center mt-1">رأس</p>
-          <div className="border-t border-blue-200 mt-3 pt-2 space-y-1">
+          <p className="text-blue-700 text-sm font-black mb-3 text-center border-b border-blue-200 pb-2">العدد</p>
+          <div className="space-y-2">
             {animalTypes.map(at => byAnimal[at.key].qty > 0 && (
-              <div key={at.key} className="flex justify-between text-xs">
-                <span className="text-blue-500">{at.label}</span>
-                <span className="text-blue-700 font-bold ltr-num" dir="ltr">{fmt(byAnimal[at.key].qty)} رأس</span>
+              <div key={at.key} className="flex justify-between items-baseline">
+                <span className="text-blue-600 text-sm font-semibold">{at.label}</span>
+                <span className="text-blue-800 font-black text-lg ltr-num" dir="ltr">
+                  {fmt(byAnimal[at.key].qty)} <span className="text-xs font-normal text-blue-500">رأس</span>
+                </span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* إجمالي الوزن مع تفصيل */}
+        {/* الوزن — تفصيل حسب الصنف فقط */}
         <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-          <p className="text-sky-600 text-xs font-medium mb-1 text-center">إجمالي الوزن</p>
-          <p className="text-3xl font-black text-sky-700 ltr-num text-center" dir="ltr">{fmt(totalWeight, 2)}</p>
-          <p className="text-sky-500 text-xs text-center mt-1">كجم</p>
-          <div className="border-t border-sky-200 mt-3 pt-2 space-y-1">
+          <p className="text-sky-700 text-sm font-black mb-3 text-center border-b border-sky-200 pb-2">الوزن (كجم)</p>
+          <div className="space-y-2">
             {animalTypes.map(at => byAnimal[at.key].weight > 0 && (
-              <div key={at.key} className="flex justify-between text-xs">
-                <span className="text-sky-500">{at.label}</span>
-                <span className="text-sky-700 font-bold ltr-num" dir="ltr">{fmt(byAnimal[at.key].weight, 2)} كجم</span>
+              <div key={at.key} className="flex justify-between items-baseline">
+                <span className="text-sky-600 text-sm font-semibold">{at.label}</span>
+                <span className="text-sky-800 font-black text-lg ltr-num" dir="ltr">
+                  {fmt(byAnimal[at.key].weight, 2)} <span className="text-xs font-normal text-sky-500">كجم</span>
+                </span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* إجمالي القيمة */}
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center">
-          <p className="text-amber-600 text-xs font-medium mb-1">إجمالي القيمة</p>
-          <p className="text-3xl font-black text-amber-700 ltr-num" dir="ltr">{fmt(totalPrice, 2)}</p>
-          <p className="text-amber-500 text-xs mt-1">ريال</p>
+        {/* إجمالي القيمة مع تفصيل الأصناف */}
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-amber-600 text-xs font-medium mb-1 text-center">إجمالي القيمة</p>
+          <p className="text-3xl font-black text-amber-700 ltr-num text-center" dir="ltr">{fmt(totalPrice, 2)}</p>
+          <p className="text-amber-500 text-xs text-center mt-1">ريال</p>
+          <div className="border-t border-amber-200 mt-3 pt-2 space-y-1.5">
+            {animalTypes.map(at => byAnimal[at.key].price > 0 && (
+              <div key={at.key} className="flex justify-between items-baseline">
+                <span className="text-amber-600 text-xs font-semibold">{at.label}</span>
+                <span className="text-amber-800 font-bold text-sm ltr-num" dir="ltr">
+                  {fmt(byAnimal[at.key].price, 2)} <span className="text-xs font-normal">ر.س</span>
+                </span>
+              </div>
+            ))}
+            {offalTotalPrice > 0 && (
+              <div className="flex justify-between items-baseline">
+                <span className="text-amber-600 text-xs font-semibold">مخلفات</span>
+                <span className="text-amber-800 font-bold text-sm ltr-num" dir="ltr">
+                  {fmt(offalTotalPrice, 2)} <span className="text-xs font-normal">ر.س</span>
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
       </div>
