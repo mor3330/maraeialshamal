@@ -14,22 +14,21 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // تاريخ اليوم السابق
-    const current = new Date(currentDate);
-    current.setDate(current.getDate() - 1);
-    const previousDate = current.toISOString().split("T")[0];
-
-    // جلب تقرير اليوم السابق — يقبل أي حالة
+    // أحدث تقرير قبل التاريخ الحالي (ليس بالضرورة يوم واحد فقط)
     const { data: prev } = await supabase
       .from("daily_reports" as any)
       .select("id, report_date, notes, status")
       .eq("branch_id", branchId)
-      .eq("report_date", previousDate)
+      .lt("report_date", currentDate)
+      .order("report_date", { ascending: false })
+      .limit(1)
       .maybeSingle();
+
+    const previousDate = (prev as any)?.report_date ?? null;
 
     if (!prev || !(prev as any).notes) {
       return NextResponse.json({
-        data: { hasPrevious: false, previousDate, hashi: 0, sheep: 0, beef: 0 },
+        data: { hasPrevious: false, previousDate: previousDate ?? "", hashi: 0, sheep: 0, beef: 0 },
       });
     }
 
