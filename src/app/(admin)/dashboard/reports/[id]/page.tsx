@@ -239,13 +239,27 @@ export default function ReportDetailPage() {
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "فشل الحفظ"); }
 
-      // ── حفظ رصيد اليوم السابق (إذا وُجد تقرير سابق ويختلف) ──
+      // ── حفظ رصيد اليوم السابق دائماً إذا وُجد تقرير سابق ──
       if (prevBal?.previousReportId) {
-        const prevChanged =
-          Math.abs(pf(ed.prev_hashi) - toN(prevBal.hashi)) > 0.001 ||
-          Math.abs(pf(ed.prev_sheep) - toN(prevBal.sheep)) > 0.001 ||
-          Math.abs(pf(ed.prev_beef)  - toN(prevBal.beef))  > 0.001;
-        if (prevChanged) {
+        const prevBody = {
+          stepDataUpdate: {
+            step5Named: {
+              hashi_remaining: pf(ed.prev_hashi),
+              sheep_remaining: pf(ed.prev_sheep),
+              beef_remaining:  pf(ed.prev_beef),
+            },
+          },
+        };
+        const prevRes = await fetch(`/api/admin/reports/${prevBal.previousReportId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prevBody),
+        });
+        if (!prevRes.ok) throw new Error("فشل حفظ رصيد اليوم السابق");
+      } else {
+        // لا يوجد تقرير سابق — أعد تحميل prevBal وحاول مرة أخرى
+        const fresh = await fetch(`/api/reports/previous-balance?branchId=${data.report.branch_id}&date=${data.report.report_date}`);
+        const freshJson = await fresh.json();
+        const freshPrevId = freshJson?.data?.previousReportId;
+        if (freshPrevId) {
           const prevBody = {
             stepDataUpdate: {
               step5Named: {
@@ -255,7 +269,7 @@ export default function ReportDetailPage() {
               },
             },
           };
-          const prevRes = await fetch(`/api/admin/reports/${prevBal.previousReportId}`, {
+          const prevRes = await fetch(`/api/admin/reports/${freshPrevId}`, {
             method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prevBody),
           });
           if (!prevRes.ok) throw new Error("فشل حفظ رصيد اليوم السابق");
