@@ -93,7 +93,7 @@ echo [*] جاري إضافة مهمة التشغيل التلقائي...
 echo     (قد تظهر نافذة UAC - اضغط نعم)
 echo.
 
-powershell -Command "& { $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument '\"C:\AroniumSync\run_silent.vbs\"'; $trigger = New-ScheduledTaskTrigger -AtStartup; $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -RunOnlyIfNetworkAvailable:$false -DisallowStartIfOnBatteries:$false -StopIfGoingOnBatteries:$false -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 0) -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1); $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest; $task = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'مزامنة مراعي الشمال'; Register-ScheduledTask -TaskName 'AroniumSync-MaraeiAlShimal' -InputObject $task -Force | Out-Null; Write-Host 'تم!' }"
+powershell -Command "& { $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument '\"C:\AroniumSync\run_silent.vbs\"'; $trigger = New-ScheduledTaskTrigger -AtStartup; $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -RunOnlyIfNetworkAvailable:$false -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 0) -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1); $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest; $task = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description 'مزامنة مراعي الشمال'; Register-ScheduledTask -TaskName 'AroniumSync-MaraeiAlShimal' -InputObject $task -Force | Out-Null; Write-Host 'تم!' }"
 
 echo [✓] تم إضافة مهمة التشغيل التلقائي
 
