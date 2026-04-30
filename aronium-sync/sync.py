@@ -9,7 +9,7 @@ sync.py - مزامنة Aronium POS مع Supabase
 """
 
 # ─── إصدار السكريبت (يُحدَّث تلقائياً) ──────────────────
-AGENT_VERSION = "2.5"
+AGENT_VERSION = "2.6"
 
 import sqlite3
 import json
@@ -330,40 +330,67 @@ def supabase_get(url, key, table, query=""):
         return []
 
 
-# ─── التحديث التلقائي من السيرفر ──────────────────────────
+# ─── التسجيل التلقائي في Windows Startup ──────────────────
+def register_startup():
+    """
+    يضيف sync.py لقائمة البرامج التي تبدأ مع Windows تلقائياً.
+    يعمل بدون صلاحيات أدمن (HKCU Registry).
+    يُستدعى مرة واحدة عند بدء الـ daemon.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import winreg
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        script_path = Path(__file__).resolve()
+        vbs_path    = script_path.parent / "run_silent.vbs"
+
+        # استخدم VBS لإخفاء نافذة الـ CMD
+        if vbs_path.exists():
+            cmd = f'wscript.exe "{vbs_path}"'
+        else:
+            cmd = f'"{sys.executable}" "{script_path}"'
+
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(key, "AroniumSync", 0, winreg.REG_SZ, cmd)
+        winreg.CloseKey(key)
+        log.info("✅ تم تسجيل البدء التلقائي مع Windows (Registry)")
+    except Exception as e:
+        log.warning(f"تحذير: فشل تسجيل البدء التلقائي: {e}")
+
+
+# ─── التحديث التلقائي عبر Supabase مباشرة ────────────────
 def check_for_updates(cfg):
     """
-    يفحص إذا كان هناك إصدار أحدث من السكريبت على السيرفر.
-    إذا وجد، يحمّله ويعيد تشغيل نفسه تلقائياً.
+    يفحص جدول sync_agent في Supabase مباشرة بدون حاجة لـ server_url.
+    يعمل طالما الجهاز متصل بالإنترنت وعنده supabase_url + supabase_key.
+    إذا وجد إصدار أحدث، يحمّله ويعيد تشغيل نفسه تلقائياً.
     """
-    server_url = cfg.get("server_url", "").rstrip("/")
-    if not server_url:
-        return  # لم يُضبط رابط السيرفر
+    supa_url = cfg["supabase_url"].rstrip("/")
+    supa_key = cfg["supabase_key"]
 
     try:
-        req = urllib.request.Request(
-            f"{server_url}/api/pos/agent-update?version={AGENT_VERSION}",
-            method="GET",
-            headers={
-                "apikey":        cfg["supabase_key"],
-                "Authorization": f"Bearer {cfg['supabase_key']}",
-            },
+        rows = supabase_get(
+            supa_url, supa_key, "sync_agent",
+            "id=eq.main&select=version,script_content"
         )
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        if not rows:
+            log.info(f"لا يوجد تحديث في قاعدة البيانات (v{AGENT_VERSION})")
+            return
 
-        if not data.get("hasUpdate"):
+        row            = rows[0]
+        server_version = str(row.get("version") or "1.0")
+
+        if AGENT_VERSION == server_version:
             log.info(f"السكريبت محدّث (v{AGENT_VERSION})")
             return
 
-        new_version = data.get("version", "?")
-        new_script  = data.get("script", "")
-
+        new_script = row.get("script_content", "")
         if not new_script or len(new_script) < 500:
-            log.warning("التحديث فارغ أو صغير جداً - تم تجاهله")
+            log.warning("التحديث في قاعدة البيانات فارغ أو صغير جداً - تجاهل")
             return
 
-        log.info(f"تحديث متاح: v{AGENT_VERSION} → v{new_version} | جاري التحديث...")
+        log.info(f"🔄 تحديث متاح: v{AGENT_VERSION} → v{server_version} | جاري التحديث...")
 
         script_path = Path(__file__).resolve()
         backup_path = script_path.with_name("sync.bak.py")
@@ -373,7 +400,7 @@ def check_for_updates(cfg):
 
         # كتابة الإصدار الجديد
         script_path.write_text(new_script, encoding="utf-8")
-        log.info(f"تم التحديث إلى v{new_version} - جاري إعادة التشغيل...")
+        log.info(f"✅ تم التحديث إلى v{server_version} - جاري إعادة التشغيل...")
 
         # إعادة تشغيل نفسنا بالإصدار الجديد
         flags = 0
@@ -651,6 +678,9 @@ def run_daemon(cfg):
         PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
     except Exception:
         pass
+
+    # تسجيل البدء التلقائي مع Windows (يعمل مرة واحدة بدون أدمن)
+    register_startup()
 
     # ─── استرداد الأيام الفائتة عند بدء التشغيل ─────────
     # إذا كانت last_sync من يوم أمس أو قبله → زامن الأيام الفائتة أولاً
