@@ -20,12 +20,14 @@ const CAT_INFO: Record<string, { label: string; icon: string; color: string; bg:
 const CATS = ["hashi", "sheep", "beef", "offal", "other"] as const;
 
 export default function ProductsPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [saving, setSaving]     = useState<string | null>(null);
-  const [search, setSearch]     = useState("");
-  const [filterCat, setFilterCat] = useState<Category | "unclassified">("unclassified");
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [products,    setProducts]    = useState<Product[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [saving,      setSaving]      = useState<string | null>(null);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [search,      setSearch]      = useState("");
+  const [filterCat,   setFilterCat]   = useState<Category | "unclassified">("unclassified");
+  const [successMsg,  setSuccessMsg]  = useState<string | null>(null);
+  const [autoResult,  setAutoResult]  = useState<{ classified: number; skipped: number; skippedNames: string[] } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -39,6 +41,7 @@ export default function ProductsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // ── تصنيف يدوي منتج واحد ──
   async function handleSetCategory(name: string, category: string) {
     setSaving(name);
     try {
@@ -63,6 +66,26 @@ export default function ProductsPage() {
     setSaving(null);
   }
 
+  // ── التصنيف التلقائي الذكي ──
+  async function handleAutoClassify() {
+    if (!confirm("سيصنّف النظام تلقائياً كل المنتجات غير المصنّفة بناءً على أسمائها العربية.\nهل تريد المتابعة؟")) return;
+    setAutoRunning(true);
+    setAutoResult(null);
+    try {
+      const res = await fetch("/api/products-mapping/auto-classify", { method: "POST" });
+      const json = await res.json();
+      if (json.error) { alert("خطأ: " + json.error); return; }
+      setAutoResult(json);
+      // تحديث قائمة المنتجات بالنتائج
+      if (json.results?.length > 0) {
+        const map: Record<string, string> = {};
+        for (const r of json.results) map[r.name] = r.category;
+        setProducts(prev => prev.map(p => map[p.name] ? { ...p, category: map[p.name] as Category } : p));
+      }
+    } catch (e: any) { alert(e.message); }
+    setAutoRunning(false);
+  }
+
   const filtered = products.filter(p => {
     const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
     const matchCat = filterCat === "unclassified" ? !p.category
@@ -85,11 +108,59 @@ export default function ProductsPage() {
             صنّف كل منتج حتى تظهر مبيعاته في تقارير الحاشي والغنم والعجل
           </p>
         </div>
-        <button onClick={load}
-          className="flex items-center gap-2 bg-card border border-line text-muted hover:text-cream px-4 py-2 rounded-xl text-sm transition-colors">
-          🔄 تحديث
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          {/* زر التصنيف التلقائي */}
+          {unclassifiedCount > 0 && (
+            <button
+              onClick={handleAutoClassify}
+              disabled={autoRunning}
+              className="flex items-center gap-2 bg-green/10 border border-green/30 hover:bg-green/20 text-green px-4 py-2 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+            >
+              {autoRunning ? (
+                <><span className="animate-spin">⏳</span> جاري التصنيف...</>
+              ) : (
+                <><span>🤖</span> تصنيف تلقائي ذكي ({unclassifiedCount})</>
+              )}
+            </button>
+          )}
+          <button onClick={load}
+            className="flex items-center gap-2 bg-card border border-line text-muted hover:text-cream px-4 py-2 rounded-xl text-sm transition-colors">
+            🔄 تحديث
+          </button>
+        </div>
       </div>
+
+      {/* ── نتيجة التصنيف التلقائي ── */}
+      {autoResult && (
+        <div className="rounded-2xl border border-green/30 bg-green/5 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-green text-lg">✅</span>
+            <span className="text-green font-bold">
+              تم تصنيف {autoResult.classified} منتج تلقائياً
+            </span>
+            {autoResult.skipped > 0 && (
+              <span className="text-amber text-sm font-medium">
+                — {autoResult.skipped} منتج لم يُتعرّف عليه (يحتاج تصنيف يدوي)
+              </span>
+            )}
+          </div>
+          {autoResult.skippedNames?.length > 0 && (
+            <details className="mt-1">
+              <summary className="text-muted text-xs cursor-pointer hover:text-cream">
+                عرض المنتجات التي لم تُصنَّف تلقائياً ({autoResult.skippedNames.length})
+              </summary>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {autoResult.skippedNames.map(n => (
+                  <span key={n} className="text-xs bg-card-hi border border-line rounded-lg px-2 py-1 text-muted">{n}</span>
+                ))}
+              </div>
+            </details>
+          )}
+          <button onClick={() => setAutoResult(null)} className="text-xs text-muted/50 hover:text-muted mt-1">
+            إغلاق
+          </button>
+        </div>
+      )}
 
       {/* ── إحصائيات ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -115,6 +186,23 @@ export default function ProductsPage() {
       {successMsg && (
         <div className="bg-green/10 border border-green/30 rounded-xl px-4 py-3 text-green text-sm font-semibold">
           {successMsg}
+        </div>
+      )}
+
+      {/* ── تنبيه إذا لا يزال هناك منتجات بدون تصنيف ── */}
+      {unclassifiedCount > 0 && !autoRunning && (
+        <div className="rounded-2xl border border-amber/30 bg-amber/5 p-4 text-sm">
+          <p className="text-amber font-bold mb-1">⚠️ {unclassifiedCount} منتج غير مصنّف</p>
+          <p className="text-muted text-xs leading-relaxed">
+            المنتجات غير المصنّفة ستظهر تحت <strong className="text-cream">فئة "أخرى"</strong> في تقارير المبيعات
+            مما يجعل الحسبة غير دقيقة. اضغط <strong className="text-green">"تصنيف تلقائي ذكي"</strong> أو صنّف كل منتج يدوياً.
+          </p>
+        </div>
+      )}
+
+      {unclassifiedCount === 0 && products.length > 0 && (
+        <div className="rounded-2xl border border-green/30 bg-green/5 p-4 text-sm">
+          <p className="text-green font-bold">✅ جميع المنتجات مصنّفة — الحسبة دقيقة 100%</p>
         </div>
       )}
 
@@ -189,7 +277,7 @@ export default function ProductsPage() {
                         </button>
                       </div>
                     ) : (
-                      <p className="text-muted text-xs mt-1">غير مصنّف</p>
+                      <p className="text-red text-xs mt-1 font-medium">⚠️ غير مصنّف</p>
                     )}
                   </div>
 
@@ -224,11 +312,31 @@ export default function ProductsPage() {
 
       {/* ── تلميح ── */}
       {classifiedCount > 0 && (
-        <div className="bg-amber/10 border border-amber/30 rounded-2xl p-4 text-sm text-amber">
-          <p className="font-bold mb-1">💡 كيف يعمل التصنيف؟</p>
+        <div className="bg-card border border-line rounded-2xl p-4 text-sm space-y-3">
+          <p className="text-cream font-bold">💡 كيف يعمل التصنيف التلقائي؟</p>
           <p className="text-muted text-xs leading-relaxed">
-            بعد تصنيف المنتجات، ستظهر مبيعاتها حسب الفئة في صفحة تفاصيل POS.
-            كما يمكن لقارئ الفاتورة في التقرير اليومي استخدام هذه البيانات لتعبئة تفاصيل المبيعات تلقائياً.
+            يبحث النظام في اسم المنتج عن كلمات مفتاحية عربية:
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-amber/10 border border-amber/20 rounded-xl p-2">
+              <p className="text-amber font-bold mb-1">🐪 حاشي</p>
+              <p className="text-muted">حاشي، هجين، جمل، ناقة، جزور...</p>
+            </div>
+            <div className="bg-blue-400/10 border border-blue-400/20 rounded-xl p-2">
+              <p className="text-blue-400 font-bold mb-1">🐑 غنم</p>
+              <p className="text-muted">غنم، خروف، ضأن، حمل، نعجة...</p>
+            </div>
+            <div className="bg-red-400/10 border border-red-400/20 rounded-xl p-2">
+              <p className="text-red-400 font-bold mb-1">🐄 عجل</p>
+              <p className="text-muted">عجل، بقر، بتلو، ثور، تلو...</p>
+            </div>
+            <div className="bg-purple-400/10 border border-purple-400/20 rounded-xl p-2">
+              <p className="text-purple-400 font-bold mb-1">🥩 مخلفات</p>
+              <p className="text-muted">كبد، كراع، رقبة، كرش، رأس...</p>
+            </div>
+          </div>
+          <p className="text-muted text-xs">
+            المنتجات التي لا تنطبق عليها كلمة مفتاحية تظهر في قائمة "لم تُصنَّف تلقائياً" وتحتاج تصنيف يدوي.
           </p>
         </div>
       )}
