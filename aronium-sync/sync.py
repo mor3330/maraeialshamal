@@ -9,7 +9,7 @@ sync.py - مزامنة Aronium POS مع Supabase
 """
 
 # ─── إصدار السكريبت (يُحدَّث تلقائياً) ──────────────────
-AGENT_VERSION = "2.3"
+AGENT_VERSION = "2.4"
 
 import sqlite3
 import json
@@ -141,13 +141,14 @@ def _fetch_sales(db_path: str, filter_type: str = "incremental",
         """, doc_ids)
         payments_raw = cur.fetchall()
 
+        # ── FIX: استخدام ROUND لمنع الكسور العشرية الزائدة ──
         cur.execute(f"""
             SELECT
-                di.DocumentId                  AS doc_id,
-                COALESCE(pr.Name, '')          AS product_name,
-                COALESCE(di.Quantity, 0)       AS quantity,
-                COALESCE(di.Price, 0)          AS unit_price,
-                COALESCE(di.Total, di.Quantity * di.Price, 0) AS total
+                di.DocumentId                                                      AS doc_id,
+                COALESCE(pr.Name, '')                                              AS product_name,
+                ROUND(COALESCE(di.Quantity, 0), 3)                                AS quantity,
+                ROUND(COALESCE(di.Price, 0), 2)                                   AS unit_price,
+                ROUND(COALESCE(di.Total, ROUND(di.Quantity * di.Price, 2), 0), 2) AS total
             FROM DocumentItem di
             LEFT JOIN Product pr ON di.ProductId = pr.Id
             WHERE di.DocumentId IN ({placeholders})
@@ -178,18 +179,46 @@ def _fetch_sales(db_path: str, filter_type: str = "incremental",
                 "total":        float(i[4]),
             })
 
+        # ── FIX: تحديد نوع الدفع من الاسم أولاً ثم الـ ID احتياطياً ──
+        # هذا يحل مشكلة عكس الكاش والشبكة عندما تختلف معرّفات PaymentType بين الفروع
+        FALLBACK_ID_MAP = {1: "cash", 2: "network", 3: "transfer", 4: "deferred"}
+
+        def _pmt_type(name: str, pid: int) -> str:
+            """يحدد نوع الدفع من الاسم العربي/الإنجليزي أولاً"""
+            n = (name or "").strip().lower()
+            # كاش / نقد
+            if any(k in n for k in ["cash", "كاش", "نقد", "نقدا", "نقدي"]):
+                return "cash"
+            # شبكة / مدى / بطاقة
+            if any(k in n for k in ["network", "شبكة", "شبكه", "mada", "مدى", "مدي",
+                                    "visa", "master", "card", "بطاقة", "بطاقه", "pos"]):
+                return "network"
+            # تحويل بنكي
+            if any(k in n for k in ["transfer", "تحويل", "bank"]):
+                return "transfer"
+            # آجل / مؤجل
+            if any(k in n for k in ["deferred", "آجل", "اجل", "مؤجل", "credit", "دين"]):
+                return "deferred"
+            # احتياطي: استخدم الـ ID إذا لم يُعرَف الاسم
+            return FALLBACK_ID_MAP.get(pid, "cash")
+
         def classify_payment(doc_id):
             pmts = payments_map.get(doc_id, [])
             if not pmts:
                 return "cash", 0.0, 0.0, 0.0
-            type_map = {1: "cash", 2: "network", 3: "transfer", 4: "deferred"}
-            total_paid = sum(p["amount"] for p in pmts)
+            total_paid = round(sum(p["amount"] for p in pmts), 2)
             if len(pmts) == 1:
-                method_code = type_map.get(pmts[0]["payment_type_id"], "cash")
+                method_code = _pmt_type(pmts[0]["payment_type"], pmts[0]["payment_type_id"])
                 return method_code, total_paid, 0.0, 0.0
-            # دفع مختلط: نحسب كم كاش وكم شبكة
-            mixed_cash = sum(p["amount"] for p in pmts if type_map.get(p["payment_type_id"]) == "cash")
-            mixed_net  = sum(p["amount"] for p in pmts if type_map.get(p["payment_type_id"]) == "network")
+            # دفع مختلط: نحسب كم كاش وكم شبكة بالاسم
+            mixed_cash = round(sum(
+                p["amount"] for p in pmts
+                if _pmt_type(p["payment_type"], p["payment_type_id"]) == "cash"
+            ), 2)
+            mixed_net = round(sum(
+                p["amount"] for p in pmts
+                if _pmt_type(p["payment_type"], p["payment_type_id"]) == "network"
+            ), 2)
             return "mixed", total_paid, mixed_cash, mixed_net
 
         sales = []
