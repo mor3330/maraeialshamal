@@ -9,7 +9,7 @@ sync.py - مزامنة Aronium POS مع Supabase
 """
 
 # ─── إصدار السكريبت (يُحدَّث تلقائياً) ──────────────────
-AGENT_VERSION = "2.6"
+AGENT_VERSION = "2.7"
 
 import sqlite3
 import json
