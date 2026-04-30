@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
 
   const version = extractVersion(rawScript);
 
-  // تخزين في Supabase
+  // 1) تخزين في Supabase sync_agent
   const { error } = await supabase
     .from("sync_agent")
     .upsert({
@@ -108,9 +108,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // 2) إنشاء force_update triggers لجميع الفروع المفعّلة — تُنفَّذ خلال 30 ثانية
+  let triggeredBranches = 0;
+  try {
+    const { data: branches } = await supabase
+      .from("branches")
+      .select("id")
+      .eq("is_active", true)
+      .eq("pos_sync_enabled", true);
+
+    if (branches && branches.length > 0) {
+      const triggers = branches.map((b: { id: string }) => ({
+        branch_id:    b.id,
+        sync_type:    "force_update",
+        status:       "pending",
+        requested_at: new Date().toISOString(),
+        note:         `تحديث فوري إلى v${version}`,
+      }));
+
+      await supabase.from("sync_triggers").insert(triggers);
+      triggeredBranches = branches.length;
+    }
+  } catch (_e) {
+    // إذا فشل إنشاء الـ triggers، التحديث سيحدث خلال 10 دقائق تلقائياً
+  }
+
   return NextResponse.json({
     success: true,
     version,
-    message: `✅ تم نشر sync.py v${version} لجميع الفروع — ستتحدث خلال ساعتين تلقائياً`,
+    triggeredBranches,
+    message: triggeredBranches > 0
+      ? `✅ تم نشر v${version} — سيُحدَّث ${triggeredBranches} فرع خلال 30 ثانية`
+      : `✅ تم نشر v${version} — الفروع ستتحدث خلال 10 دقائق`,
   });
 }

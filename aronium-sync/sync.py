@@ -9,7 +9,7 @@ sync.py - مزامنة Aronium POS مع Supabase
 """
 
 # ─── إصدار السكريبت (يُحدَّث تلقائياً) ──────────────────
-AGENT_VERSION = "2.4"
+AGENT_VERSION = "2.5"
 
 import sqlite3
 import json
@@ -416,7 +416,11 @@ def check_and_execute_triggers(cfg):
         date_to   = t.get("date_to")
 
         try:
-            if sync_type == "custom_date" and date_from and date_to:
+            if sync_type == "force_update":
+                # ─── تحديث فوري للسكريبت ───
+                log.info("🔄 طلب تحديث فوري للسكريبت...")
+                check_for_updates(cfg)
+            elif sync_type == "custom_date" and date_from and date_to:
                 log.info(f"تنفيذ مزامنة مخصصة: {date_from} → {date_to}")
                 do_sync_custom_date(cfg, date_from, date_to)
             else:
@@ -657,7 +661,7 @@ def run_daemon(cfg):
 
     REGULAR_INTERVAL  = 5 * 60    # 5 دقائق
     TRIGGER_INTERVAL  = 30        # 30 ثانية
-    UPDATE_INTERVAL   = 2 * 3600  # ساعتين
+    UPDATE_INTERVAL   = 10 * 60   # 10 دقائق (كان ساعتين — خُفِّف لتوزيع التحديثات بسرعة)
 
     last_regular_sync = 0
     last_update_check = 0  # يفحص التحديث فور البدء
