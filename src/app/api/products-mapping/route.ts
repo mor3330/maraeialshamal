@@ -3,22 +3,44 @@ import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-// GET: جلب كل أسماء المنتجات مع تصنيفاتها الحالية
+// GET: جلب كل أسماء المنتجات الفريدة مع تصنيفاتها الحالية
 export async function GET(_req: NextRequest) {
   const supabase = createServiceClient();
 
-  // جلب كل الأسماء الفريدة من sale_items
-  const { data: rawItems } = await (supabase as any)
-    .from("sale_items")
-    .select("product_name");
+  // ── جلب أسماء المنتجات الفريدة بـ RPC لتجنب حد الـ 1000 صف ──
+  // نستخدم استعلام SQL مباشر عبر rpc أو نجلب بـ range
+  // الحل: جلب مجمّع من قاعدة البيانات مباشرةً
+  const { data: rawItems, error: itemsErr } = await (supabase as any)
+    .rpc("get_distinct_product_names");
 
-  const allNames = [...new Set(
-    (rawItems || [])
-      .map((r: any) => r.product_name?.trim())
-      .filter(Boolean)
-  )] as string[];
+  let allNames: string[] = [];
 
-  // جلب التصنيفات الحالية
+  if (itemsErr || !rawItems) {
+    // fallback: جلب بصفحات 1000 × 1000 حتى نحصل على كل الأسماء
+    let page = 0;
+    const pageSize = 1000;
+    const nameSet = new Set<string>();
+    while (true) {
+      const { data: chunk } = await (supabase as any)
+        .from("sale_items")
+        .select("product_name")
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+      if (!chunk || chunk.length === 0) break;
+      for (const r of chunk) {
+        const n = r.product_name?.trim();
+        if (n) nameSet.add(n);
+      }
+      if (chunk.length < pageSize) break; // آخر صفحة
+      page++;
+    }
+    allNames = [...nameSet];
+  } else {
+    allNames = (rawItems as any[])
+      .map((r: any) => (r.product_name || r.name || "")?.trim())
+      .filter(Boolean);
+  }
+
+  // ── جلب التصنيفات الحالية ──
   const { data: rawMappings } = await (supabase as any)
     .from("product_mappings")
     .select("aronium_name, category");
