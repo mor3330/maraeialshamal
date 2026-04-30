@@ -9,7 +9,7 @@ sync.py - مزامنة Aronium POS مع Supabase
 """
 
 # ─── إصدار السكريبت (يُحدَّث تلقائياً) ──────────────────
-AGENT_VERSION = "2.7"
+AGENT_VERSION = "2.10"
 
 import sqlite3
 import json
@@ -20,6 +20,7 @@ import logging
 import time
 import traceback
 import subprocess
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -45,6 +46,48 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger(__name__)
+
+
+# ─── تقريب آمن بدون أخطاء float ─────────────────────────
+def safe_decimal(value, places=2):
+    """يحوّل أي قيمة رقمية إلى Decimal مقرّب بدون أخطاء float"""
+    try:
+        d = Decimal(str(value) if value is not None else "0")
+        quantize_str = "0." + "0" * places
+        return float(d.quantize(Decimal(quantize_str), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, ValueError, TypeError):
+        return 0.0
+
+
+def safe_qty(value):
+    """كميات اللحم: 3 منازل عشرية"""
+    return safe_decimal(value, 3)
+
+
+def parse_aronium_dt(raw) -> str:
+    """
+    يحوّل تاريخ Aronium لـ ISO 8601 كامل مع milliseconds وـ timezone.
+    Aronium يخزن: '2026-04-30 14:23:45.123' أو '2026-04-30 14:23:45' أو '2026-04-30T14:23:45'
+    المخرج:        '2026-04-30T14:23:45.123000+03:00' (توقيت الرياض)
+    """
+    if not raw:
+        return None
+    s = str(raw).strip().replace("T", " ")
+    # إذا فيه timezone مضاف بالفعل — أرجعه كما هو
+    if "+" in s or (s.count("-") > 2 and s.rfind("-") > 10):
+        return raw
+    # parse
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            # Aronium يحفظ بتوقيت الرياض (UTC+3)
+            from datetime import timezone as tz
+            riyadh = timezone(timedelta(hours=3))
+            dt = dt.replace(tzinfo=riyadh)
+            return dt.isoformat(timespec="milliseconds")
+        except ValueError:
+            continue
+    return raw  # fallback: أرجع الأصل
 
 
 # ─── قراءة الإعدادات ──────────────────────────────────────
@@ -86,14 +129,39 @@ def fetch_sales_by_date_range(db_path: str, date_from: str, date_to: str):
     return _fetch_sales(db_path, filter_type="date_range", date_from=date_from, date_to=date_to)
 
 
+def _get_columns(cur, table: str) -> set:
+    """يرجع أسماء الأعمدة الموجودة فعلاً في الجدول"""
+    cur.execute(f"PRAGMA table_info({table})")
+    return {row[1].lower() for row in cur.fetchall()}
+
+
 def _fetch_sales(db_path: str, filter_type: str = "incremental",
                   last_sync: str = None, date_from: str = None, date_to: str = None):
     tmp_path = BASE_DIR / "pos_tmp.db"
+    conn = None
     try:
         shutil.copy2(db_path, tmp_path)
         conn = sqlite3.connect(str(tmp_path))
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+
+        # اكتشف الأعمدة المتاحة — تختلف بين إصدارات Aronium
+        doc_cols  = _get_columns(cur, "Document")
+        item_cols = _get_columns(cur, "DocumentItem")
+        prod_cols = _get_columns(cur, "Product")
+
+        # أعمدة اختيارية في Document
+        col_discount = "COALESCE(d.Discount, 0) AS discount" if "discount" in doc_cols else "0 AS discount"
+        col_tax      = "COALESCE(d.Tax, 0)      AS tax"      if "tax"      in doc_cols else "0 AS tax"
+        col_note     = "COALESCE(d.Note, '')    AS note"     if "note"     in doc_cols else "'' AS note"
+
+        # أعمدة اختيارية في DocumentItem
+        col_item_disc = "COALESCE(di.Discount, 0) AS item_discount" if "discount" in item_cols else "0 AS item_discount"
+        col_item_tax  = "COALESCE(di.Tax, 0)      AS item_tax"      if "tax"      in item_cols else "0 AS item_tax"
+
+        # أعمدة اختيارية في Product
+        col_barcode    = "COALESCE(pr.Barcode, '') AS barcode"   if "barcode" in prod_cols else "'' AS barcode"
+        col_product_id = "COALESCE(pr.Id, 0)       AS product_id" if prod_cols else "0 AS product_id"
 
         if filter_type == "date_range" and date_from and date_to:
             date_to_inclusive = date_to + " 23:59:59"
@@ -106,13 +174,18 @@ def _fetch_sales(db_path: str, filter_type: str = "incremental",
 
         cur.execute(f"""
             SELECT
-                d.Id                AS doc_id,
-                d.Number            AS invoice_number,
-                dt.Name             AS doc_type,
-                d.Date              AS sale_date,
-                d.DateCreated       AS date_created,
-                COALESCE(d.Total,0) AS total,
-                u.Username          AS cashier_name
+                d.Id                        AS doc_id,
+                d.Number                    AS invoice_number,
+                dt.Name                     AS doc_type,
+                d.DocumentTypeId            AS doc_type_id,
+                d.Date                      AS sale_date,
+                d.DateCreated               AS date_created,
+                COALESCE(d.Total, 0)        AS total,
+                {col_discount},
+                {col_tax},
+                {col_note},
+                u.Username                  AS cashier_name,
+                u.Id                        AS cashier_id
             FROM Document d
             LEFT JOIN DocumentType dt ON d.DocumentTypeId = dt.Id
             LEFT JOIN User u          ON d.UserId = u.Id
@@ -124,6 +197,7 @@ def _fetch_sales(db_path: str, filter_type: str = "incremental",
 
         if not docs:
             conn.close()
+            conn = None
             return [], []
 
         doc_ids = [d["doc_id"] for d in docs]
@@ -131,30 +205,38 @@ def _fetch_sales(db_path: str, filter_type: str = "incremental",
 
         cur.execute(f"""
             SELECT
-                p.DocumentId      AS doc_id,
-                pt.Name           AS payment_type,
-                pt.Id             AS payment_type_id,
-                COALESCE(p.Amount,0) AS amount
+                p.DocumentId            AS doc_id,
+                pt.Name                 AS payment_type,
+                pt.Id                   AS payment_type_id,
+                COALESCE(p.Amount, 0)   AS amount
             FROM Payment p
             LEFT JOIN PaymentType pt ON p.PaymentTypeId = pt.Id
             WHERE p.DocumentId IN ({placeholders})
         """, doc_ids)
         payments_raw = cur.fetchall()
 
-        # ── FIX: استخدام ROUND لمنع الكسور العشرية الزائدة ──
         cur.execute(f"""
             SELECT
-                di.DocumentId                                                      AS doc_id,
-                COALESCE(pr.Name, '')                                              AS product_name,
-                ROUND(COALESCE(di.Quantity, 0), 3)                                AS quantity,
-                ROUND(COALESCE(di.Price, 0), 2)                                   AS unit_price,
-                ROUND(COALESCE(di.Total, ROUND(di.Quantity * di.Price, 2), 0), 2) AS total
+                di.DocumentId                                   AS doc_id,
+                di.Id                                           AS item_id,
+                COALESCE(pr.Name, '')                           AS product_name,
+                {col_product_id},
+                {col_barcode},
+                COALESCE(di.Quantity, 0)                        AS quantity,
+                COALESCE(di.Price, 0)                           AS unit_price,
+                {col_item_disc},
+                {col_item_tax},
+                COALESCE(di.Total, di.Quantity * di.Price, 0)   AS total
             FROM DocumentItem di
             LEFT JOIN Product pr ON di.ProductId = pr.Id
             WHERE di.DocumentId IN ({placeholders})
+            ORDER BY di.Id ASC
         """, doc_ids)
         items_raw = cur.fetchall()
+
+        # أغلق الـ connection قبل أي عملية على الملف
         conn.close()
+        conn = None
 
         payments_map: dict = {}
         for p in payments_raw:
@@ -164,7 +246,7 @@ def _fetch_sales(db_path: str, filter_type: str = "incremental",
             payments_map[pid].append({
                 "payment_type":    p[1] or "",
                 "payment_type_id": p[2],
-                "amount":          float(p[3]),
+                "amount":          safe_decimal(p[3]),
             })
 
         items_map: dict = {}
@@ -173,10 +255,15 @@ def _fetch_sales(db_path: str, filter_type: str = "incremental",
             if did not in items_map:
                 items_map[did] = []
             items_map[did].append({
-                "product_name": i[1],
-                "quantity":     float(i[2]),
-                "unit_price":   float(i[3]),
-                "total":        float(i[4]),
+                "item_id":        i[1],
+                "product_name":   i[2],
+                "product_id":     i[3],
+                "barcode":        i[4] or "",
+                "quantity":       safe_qty(i[5]),
+                "unit_price":     safe_decimal(i[6]),
+                "item_discount":  safe_decimal(i[7]),
+                "item_tax":       safe_decimal(i[8]),
+                "total":          safe_decimal(i[9]),
             })
 
         # ── FIX: تحديد نوع الدفع من الاسم أولاً ثم الـ ID احتياطياً ──
@@ -205,49 +292,84 @@ def _fetch_sales(db_path: str, filter_type: str = "incremental",
         def classify_payment(doc_id):
             pmts = payments_map.get(doc_id, [])
             if not pmts:
-                return "cash", 0.0, 0.0, 0.0
-            total_paid = round(sum(p["amount"] for p in pmts), 2)
+                return "cash", 0.0, 0.0, 0.0, 0.0, 0.0
+            total_paid = safe_decimal(sum(
+                Decimal(str(p["amount"])) for p in pmts
+            ))
             if len(pmts) == 1:
                 method_code = _pmt_type(pmts[0]["payment_type"], pmts[0]["payment_type_id"])
-                return method_code, total_paid, 0.0, 0.0
-            # دفع مختلط: نحسب كم كاش وكم شبكة بالاسم
-            mixed_cash = round(sum(
-                p["amount"] for p in pmts
+                # نرجع كل مبالغ المنفردة في حقولها
+                cash_amt    = total_paid if method_code == "cash"     else 0.0
+                net_amt     = total_paid if method_code == "network"  else 0.0
+                trans_amt   = total_paid if method_code == "transfer" else 0.0
+                defer_amt   = total_paid if method_code == "deferred" else 0.0
+                return method_code, total_paid, cash_amt, net_amt, trans_amt, defer_amt
+            # دفع مختلط
+            cash_amt  = safe_decimal(sum(
+                Decimal(str(p["amount"])) for p in pmts
                 if _pmt_type(p["payment_type"], p["payment_type_id"]) == "cash"
-            ), 2)
-            mixed_net = round(sum(
-                p["amount"] for p in pmts
+            ))
+            net_amt   = safe_decimal(sum(
+                Decimal(str(p["amount"])) for p in pmts
                 if _pmt_type(p["payment_type"], p["payment_type_id"]) == "network"
-            ), 2)
-            return "mixed", total_paid, mixed_cash, mixed_net
+            ))
+            trans_amt = safe_decimal(sum(
+                Decimal(str(p["amount"])) for p in pmts
+                if _pmt_type(p["payment_type"], p["payment_type_id"]) == "transfer"
+            ))
+            defer_amt = safe_decimal(sum(
+                Decimal(str(p["amount"])) for p in pmts
+                if _pmt_type(p["payment_type"], p["payment_type_id"]) == "deferred"
+            ))
+            return "mixed", total_paid, cash_amt, net_amt, trans_amt, defer_amt
 
         sales = []
         for doc in docs:
-            method, paid, m_cash, m_net = classify_payment(doc["doc_id"])
+            method, paid, amt_cash, amt_net, amt_trans, amt_defer = classify_payment(doc["doc_id"])
+            doc_type_id    = doc.get("doc_type_id", 0)
             doc_type_lower = (doc["doc_type"] or "").lower()
-            is_refund = "refund" in doc_type_lower or "return" in doc_type_lower or doc_type_lower == "4"
+            is_refund = (
+                "refund" in doc_type_lower
+                or "return" in doc_type_lower
+                or str(doc_type_id) == "4"
+            )
+            sale_date_iso    = parse_aronium_dt(doc["sale_date"])
+            date_created_iso = parse_aronium_dt(doc["date_created"])
             sales.append({
-                "aronium_document_id":  doc["doc_id"],
-                "invoice_number":       str(doc["invoice_number"] or doc["doc_id"]),
-                "document_type":        "refund" if is_refund else "sale",
-                "sale_date":            doc["sale_date"],
-                "date_created":         doc["date_created"],
-                "total":                float(doc["total"]),
-                "paid_amount":          paid,
-                "payment_method":       method,
-                "mixed_cash_amount":    m_cash,
-                "mixed_network_amount": m_net,
-                "cashier_name":         doc["cashier_name"] or "",
-                "_items":               items_map.get(doc["doc_id"], []),
-                "_date_created_raw":    doc["date_created"],
+                "aronium_document_id":      doc["doc_id"],
+                "invoice_number":           str(doc["invoice_number"] or doc["doc_id"]),
+                "document_type":            "refund" if is_refund else "sale",
+                "sale_date":                sale_date_iso,
+                "date_created":             date_created_iso,
+                "total":                    safe_decimal(doc["total"]),
+                "discount":                 safe_decimal(doc.get("discount", 0)),
+                "tax":                      safe_decimal(doc.get("tax", 0)),
+                "note":                     doc.get("note", "") or "",
+                "paid_amount":              paid,
+                "payment_method":           method,
+                "cash_amount":              amt_cash,
+                "network_amount":           amt_net,
+                "transfer_amount":          amt_trans,
+                "deferred_amount":          amt_defer,
+                "mixed_cash_amount":        amt_cash,
+                "mixed_network_amount":     amt_net,
+                "cashier_name":             doc["cashier_name"] or "",
+                "cashier_id":               doc.get("cashier_id", ""),
+                "_items":                   items_map.get(doc["doc_id"], []),
+                "_payments":                payments_map.get(doc["doc_id"], []),
+                "_date_created_raw":        doc["date_created"],
             })
 
         return sales, []
 
     except Exception as e:
         log.error(f"خطأ في قراءة SQLite: {e}")
-        if tmp_path.exists():
-            tmp_path.unlink()
+        # أغلق الـ connection أولاً قبل محاولة حذف الملف
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
         raise
     finally:
         if tmp_path.exists():
@@ -341,7 +463,7 @@ def register_startup():
         return
     try:
         import winreg
-        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        key_path = r"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
         script_path = Path(__file__).resolve()
         vbs_path    = script_path.parent / "run_silent.vbs"
 
@@ -364,22 +486,31 @@ def check_for_updates(cfg):
     """
     يفحص جدول sync_agent في Supabase مباشرة بدون حاجة لـ server_url.
     يعمل طالما الجهاز متصل بالإنترنت وعنده supabase_url + supabase_key.
-    إذا وجد إصدار أحدث، يحمّله ويعيد تشغيل نفسه تلقائياً.
+    إذا وجد إصدار أحدث، يحمّله ويعيد تشغيل نفسه تلقائياً عبر VBS.
     """
     supa_url = cfg["supabase_url"].rstrip("/")
     supa_key = cfg["supabase_key"]
 
     try:
-        rows = supabase_get(
-            supa_url, supa_key, "sync_agent",
-            "id=eq.main&select=version,script_content"
-        )
+        # نجرب جلب البيانات مع retry مرتين في حالة انقطاع مؤقت
+        rows = None
+        for attempt in range(3):
+            try:
+                rows = supabase_get(
+                    supa_url, supa_key, "sync_agent",
+                    "select=version,script_content&limit=1"
+                )
+                break
+            except Exception:
+                if attempt < 2:
+                    time.sleep(5)
+
         if not rows:
-            log.info(f"لا يوجد تحديث في قاعدة البيانات (v{AGENT_VERSION})")
+            log.info(f"لا يوجد سجل تحديث في sync_agent (v{AGENT_VERSION})")
             return
 
         row            = rows[0]
-        server_version = str(row.get("version") or "1.0")
+        server_version = str(row.get("version") or "1.0").strip()
 
         if AGENT_VERSION == server_version:
             log.info(f"السكريبت محدّث (v{AGENT_VERSION})")
@@ -393,28 +524,55 @@ def check_for_updates(cfg):
         log.info(f"🔄 تحديث متاح: v{AGENT_VERSION} → v{server_version} | جاري التحديث...")
 
         script_path = Path(__file__).resolve()
-        backup_path = script_path.with_name("sync.bak.py")
+        backup_path = script_path.with_name(f"sync.v{AGENT_VERSION}.bak.py")
 
-        # نسخة احتياطية تلقائية
+        # نسخة احتياطية بالإصدار الحالي
         shutil.copy2(script_path, backup_path)
+        log.info(f"نسخة احتياطية: {backup_path.name}")
 
         # كتابة الإصدار الجديد
         script_path.write_text(new_script, encoding="utf-8")
         log.info(f"✅ تم التحديث إلى v{server_version} - جاري إعادة التشغيل...")
 
         # إعادة تشغيل نفسنا بالإصدار الجديد
-        flags = 0
-        if sys.platform == "win32":
-            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-        subprocess.Popen(
-            [sys.executable, str(script_path)],
-            cwd=str(script_path.parent),
-            creationflags=flags,
-        )
-        os._exit(0)
+        _restart_self(script_path)
 
     except Exception as e:
         log.warning(f"فشل فحص التحديثات: {e}")
+
+
+def _restart_self(script_path: Path):
+    """يعيد تشغيل السكريبت بطريقة موثوقة على Windows"""
+    try:
+        if sys.platform == "win32":
+            vbs_path = script_path.parent / "run_silent.vbs"
+            if vbs_path.exists():
+                # استخدم VBS المخصص لإخفاء النافذة
+                subprocess.Popen(
+                    ["wscript.exe", str(vbs_path)],
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                    close_fds=True,
+                )
+            else:
+                # fallback: bat يطلق python مباشرة
+                bat_content = f'@echo off\\nstart "" /B "{sys.executable}" "{script_path}"\\n'
+                bat_path = script_path.parent / "_restart.bat"
+                bat_path.write_text(bat_content, encoding="ascii")
+                subprocess.Popen(
+                    ["cmd.exe", "/c", str(bat_path)],
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                    close_fds=True,
+                )
+        else:
+            subprocess.Popen(
+                [sys.executable, str(script_path)],
+                cwd=str(script_path.parent),
+            )
+        time.sleep(1)
+        os._exit(0)
+    except Exception as e:
+        log.error(f"فشل إعادة التشغيل: {e}")
+        os._exit(1)
 
 
 # ─── sync_triggers: فحص وتنفيذ الطلبات الفورية ────────────
@@ -520,10 +678,17 @@ def upload_sales(cfg, sales, sync_log_id, update_last_sync=False, last_sync_ref=
             "sale_date":            s["sale_date"],
             "date_created":         s["date_created"],
             "total":                s["total"],
+            "discount":             s.get("discount", 0),
+            "tax":                  s.get("tax", 0),
+            "note":                 s.get("note", "") or None,
             "paid_amount":          s["paid_amount"],
             "payment_method":       s["payment_method"],
-            "mixed_cash_amount":    s.get("mixed_cash_amount", 0),
-            "mixed_network_amount": s.get("mixed_network_amount", 0),
+            "cash_amount":          s.get("cash_amount", 0),
+            "network_amount":       s.get("network_amount", 0),
+            "transfer_amount":      s.get("transfer_amount", 0),
+            "deferred_amount":      s.get("deferred_amount", 0),
+            "mixed_cash_amount":    s.get("cash_amount", 0),
+            "mixed_network_amount": s.get("network_amount", 0),
             "cashier_name":         s["cashier_name"],
         } for s in batch]
 
@@ -548,8 +713,12 @@ def upload_sales(cfg, sales, sync_log_id, update_last_sync=False, last_sync_ref=
                     "branch_id":           branch_id,
                     "aronium_document_id": s["aronium_document_id"],
                     "product_name":        item["product_name"],
+                    "product_id":          item.get("product_id") or None,
+                    "barcode":             item.get("barcode") or None,
                     "quantity":            item["quantity"],
                     "unit_price":          item["unit_price"],
+                    "item_discount":       item.get("item_discount", 0),
+                    "item_tax":            item.get("item_tax", 0),
                     "total":               item["total"],
                 })
             total_items += len(s.get("_items", []))
@@ -561,7 +730,7 @@ def upload_sales(cfg, sales, sync_log_id, update_last_sync=False, last_sync_ref=
         if items_rows:
             existing_ids = list(sale_ids.values())
             if existing_ids:
-                ids_filter = "(" + ",".join(existing_ids) + ")"
+                ids_filter = "(" + ",".join(str(x) for x in existing_ids) + ")"
                 supabase_delete(supa_url, supa_key, "sale_items",
                                 f"sale_id=in.{ids_filter}")
             supabase_post(supa_url, supa_key, "sale_items", items_rows)
@@ -608,7 +777,7 @@ def do_sync(cfg, force_full_day=False):
                 save_last_sync(newest)
     except Exception as e:
         err_msg = traceback.format_exc()
-        log.error(f"خطأ غير متوقع:\n{err_msg}")
+        log.error(f"خطأ غير متوقع:\\n{err_msg}")
         log_sync_end(supa_url, supa_key, sync_log_id, 0, 0, "failed", str(e))
 
 
@@ -664,13 +833,13 @@ def do_sync_custom_date(cfg, date_from: str, date_to: str):
         upload_sales(cfg, sales, sync_log_id, update_last_sync=False)
     except Exception as e:
         err_msg = traceback.format_exc()
-        log.error(f"خطأ في المزامنة المخصصة:\n{err_msg}")
+        log.error(f"خطأ في المزامنة المخصصة:\\n{err_msg}")
         log_sync_end(supa_url, supa_key, sync_log_id, 0, 0, "failed", str(e))
 
 
 # ─── وضع الـ Daemon الدائم ────────────────────────────────
 def run_daemon(cfg):
-    """يشتغل إلى الأبد: يزامن كل 5 دقائق، يفحص الطلبات كل 30 ثانية، يتحدث كل ساعتين"""
+    """يشتغل إلى الأبد: يزامن كل 5 دقائق، يفحص الطلبات كل 30 ثانية، يتحدث كل 10 دقائق"""
     log.info(f"وضع الخادم الدائم | v{AGENT_VERSION} | يعمل بشكل مستمر")
 
     # كتابة PID ليعرف الحارس أن السكريبت يعمل
@@ -683,7 +852,6 @@ def run_daemon(cfg):
     register_startup()
 
     # ─── استرداد الأيام الفائتة عند بدء التشغيل ─────────
-    # إذا كانت last_sync من يوم أمس أو قبله → زامن الأيام الفائتة أولاً
     try:
         catchup_missed_days(cfg)
     except Exception:
@@ -691,16 +859,31 @@ def run_daemon(cfg):
 
     REGULAR_INTERVAL  = 5 * 60    # 5 دقائق
     TRIGGER_INTERVAL  = 30        # 30 ثانية
-    UPDATE_INTERVAL   = 10 * 60   # 10 دقائق (كان ساعتين — خُفِّف لتوزيع التحديثات بسرعة)
+    UPDATE_INTERVAL   = 10 * 60   # 10 دقائق
 
     last_regular_sync = 0
     last_update_check = 0  # يفحص التحديث فور البدء
+    last_heartbeat_ts = time.time()  # لكشف "sleep" عند إطفاء الجهاز
 
     while True:
         try:
             now = time.time()
 
-            # فحص التحديثات التلقائية كل ساعتين
+            # ─── كشف إطفاء الجهاز ───────────────────────
+            # إذا مر أكثر من 3 دقائق بين tick و tick → الجهاز كان مطفياً
+            # نعيد المزامنة فوراً ونسترد الأيام الفائتة
+            sleep_gap = now - last_heartbeat_ts
+            if sleep_gap > 180:
+                log.info(f"⚡ الجهاز أُعيد تشغيله أو كان في وضع السكون ({sleep_gap/60:.1f} دقيقة) - استرداد...")
+                try:
+                    catchup_missed_days(cfg)
+                except Exception:
+                    pass
+                # أجبر مزامنة فورية كاملة لليوم الحالي
+                last_regular_sync = 0
+            last_heartbeat_ts = now
+
+            # فحص التحديثات التلقائية
             if now - last_update_check >= UPDATE_INTERVAL:
                 check_for_updates(cfg)
                 last_update_check = time.time()
