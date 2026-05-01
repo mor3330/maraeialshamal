@@ -12,7 +12,6 @@ const TABS = [
   { key: "fields",   label: "حقول الخطوات",  desc: "تخصيص الأسئلة لكل خطوة", isLink: true, href: "/dashboard/settings/step-fields" },
   { key: "excel",    label: "Excel",          desc: "ربط ملف Excel المركزي" },
   { key: "whatsapp", label: "واتساب",         desc: "إشعارات واتساب للمدير" },
-  { key: "pos",      label: "🔄 تحديث الكواشير", desc: "نشر تحديث sync.py لجميع الفروع تلقائياً" },
 ] as const;
 type Tab = typeof TABS[number]["key"];
 
@@ -112,114 +111,6 @@ function ExcelExport() {
           {loading ? "جاري التصدير..." : "تحميل ملف Excel"}
         </button>
       </div>
-    </div>
-  );
-}
-
-/* ─────────── Agent Update Panel ─────────── */
-function AgentUpdatePanel() {
-  const [status, setStatus] = useState<null | "loading" | "done" | "error">(null);
-  const [msg, setMsg]       = useState("");
-  const [currentVer, setCurrentVer] = useState<string | null>(null);
-
-  // جلب الإصدار الحالي المخزون في Supabase
-  useEffect(() => {
-    fetch("/api/pos/agent-update?version=0")
-      .then(r => r.json())
-      .then(d => setCurrentVer(d.version ?? null))
-      .catch(() => {});
-  }, []);
-
-  async function publishUpdate() {
-    if (!confirm("سيُنشر sync.py الحالي لجميع الفروع وستبدأ بالتحديث خلال 30 ثانية. تأكيد؟")) return;
-    setStatus("loading");
-    setMsg("جاري رفع التحديث...");
-    try {
-      const res  = await fetch("/api/pos/agent-update", { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) {
-        setStatus("error");
-        setMsg(json.error || "فشل نشر التحديث");
-      } else {
-        setStatus("done");
-        setMsg(json.message || "تم النشر");
-        setCurrentVer(json.version);
-      }
-    } catch {
-      setStatus("error");
-      setMsg("خطأ في الاتصال");
-    }
-  }
-
-  return (
-    <div className="max-w-xl space-y-6" dir="rtl">
-      <div>
-        <h2 className="text-lg font-bold text-cream">تحديث الكواشير تلقائياً</h2>
-        <p className="text-muted text-sm mt-1">
-          اضغط الزر وسيُنشر آخر إصدار من <code className="text-amber text-xs bg-card-hi px-1 rounded">sync.py</code> لجميع الفروع — بدون ما تمس أي جهاز
-        </p>
-      </div>
-
-      {/* كيف يعمل */}
-      <div className="rounded-2xl border border-line bg-card p-5 space-y-3">
-        <p className="text-cream font-semibold text-sm">كيف يعمل؟</p>
-        {[
-          { n: "1", t: "تضغط «نشر تحديث»", d: "يُرفع sync.py الجديد لقاعدة البيانات" },
-          { n: "2", t: "الفروع تكتشفه تلقائياً", d: "كل فرع يفحص التحديثات كل 10 دقائق — أو فوراً إذا أرسلنا trigger" },
-          { n: "3", t: "يثبّت نفسه ويعيد التشغيل", d: "يحفظ نسخة احتياطية ثم يُحدّث نفسه دون أي تدخل" },
-        ].map(s => (
-          <div key={s.n} className="flex items-start gap-3">
-            <span className="w-6 h-6 rounded-lg bg-green/15 text-green text-xs font-black flex items-center justify-center flex-shrink-0 mt-0.5">{s.n}</span>
-            <div>
-              <p className="text-cream text-sm font-medium">{s.t}</p>
-              <p className="text-muted text-xs">{s.d}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* الإصدار الحالي */}
-      {currentVer && (
-        <div className="rounded-xl border border-line bg-card-hi px-4 py-3 flex items-center gap-3">
-          <span className="text-green text-sm">✓</span>
-          <p className="text-muted text-sm">
-            الإصدار المنشور حالياً: <span className="text-cream font-bold">v{currentVer}</span>
-          </p>
-        </div>
-      )}
-
-      {/* نتيجة العملية */}
-      {status && (
-        <div className={`rounded-xl border px-4 py-3 text-sm flex items-center gap-3 ${
-          status === "done"    ? "bg-green/10 border-green/30 text-green" :
-          status === "error"   ? "bg-red/10 border-red/30 text-red" :
-          "bg-amber/10 border-amber/30 text-amber"
-        }`}>
-          {status === "loading" && (
-            <span className="w-4 h-4 border-2 border-amber border-t-transparent rounded-full animate-spin flex-shrink-0" />
-          )}
-          {msg}
-        </div>
-      )}
-
-      {/* زر النشر */}
-      <button
-        onClick={publishUpdate}
-        disabled={status === "loading"}
-        className="w-full py-4 rounded-2xl font-black text-base transition-all disabled:opacity-60 disabled:cursor-not-allowed bg-green hover:bg-green-dark text-white flex items-center justify-center gap-3">
-        {status === "loading" ? (
-          <>
-            <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            جاري النشر...
-          </>
-        ) : (
-          <>🚀 نشر تحديث لجميع الفروع</>
-        )}
-      </button>
-
-      <p className="text-muted text-xs text-center">
-        الفروع التي تعمل ستتحدث خلال 30 ثانية — الفروع المغلقة ستتحدث عند أول تشغيل
-      </p>
     </div>
   );
 }
@@ -421,9 +312,6 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
-
-      {/* ── POS Agent Update ── */}
-      {tab === "pos" && <AgentUpdatePanel />}
 
       {/* ── Add/Edit Modal ── */}
       {showForm && (tab === "meat" || tab === "payments") && (
