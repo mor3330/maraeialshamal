@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { StepField } from "@/types/database";
 
 interface DynamicFieldProps {
@@ -10,6 +10,121 @@ interface DynamicFieldProps {
   error?: string;
 }
 
+/* ─── تقييم تعبير رياضي بشكل آمن (بدون eval مباشر) ─── */
+function safeCalc(expr: string): number | null {
+  const cleaned = expr.trim().replace(/\s/g, "").replace(/،/g, ".").replace(/,/g, ".");
+  if (!cleaned) return null;
+  // السماح فقط بالأرقام وعمليات + - * / والأقواس والنقطة
+  if (!/^[0-9+\-*/.()]+$/.test(cleaned)) return null;
+  try {
+    // eslint-disable-next-line no-new-func
+    const result = new Function('"use strict"; return (' + cleaned + ')')();
+    if (typeof result === "number" && isFinite(result) && !isNaN(result)) {
+      // تقريب إلى 3 منازل عشرية
+      return Math.round(result * 1000) / 1000;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/* ─── الانتقال للحقل التالي عند Enter ─── */
+function focusNext(current: HTMLElement) {
+  const sel = 'input:not([type="hidden"]):not([type="file"]):not([disabled]), textarea:not([disabled]), select:not([disabled])';
+  const all = [...document.querySelectorAll<HTMLElement>(sel)].filter(
+    (el) => el.offsetParent !== null && !el.closest('[aria-hidden="true"]')
+  );
+  const idx = all.indexOf(current);
+  if (idx !== -1 && idx < all.length - 1) {
+    all[idx + 1].focus();
+    if ((all[idx + 1] as HTMLInputElement).select) {
+      (all[idx + 1] as HTMLInputElement).select();
+    }
+  }
+}
+
+/* ─── حقل الأرقام مع الحاسبة ─── */
+function NumberField({ field, value, onChange, error }: DynamicFieldProps) {
+  const [raw, setRaw]       = useState("");
+  const [focused, setFocused] = useState(false);
+
+  const displayVal = focused ? raw : (value != null && value !== "" ? String(value) : "");
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value;
+    setRaw(v);
+    // تحديث فوري إذا كان رقماً بسيطاً (بدون عمليات)
+    if (v === "" || v === "-") {
+      onChange(v === "" ? "" : v);
+    } else if (!/[+\-*/]/.test(v) || (v.startsWith("-") && !/[+\-*/]/.test(v.slice(1)))) {
+      const n = parseFloat(v);
+      if (!isNaN(n)) onChange(n);
+      else onChange(v);
+    }
+  }
+
+  function commitCalc(input: HTMLElement) {
+    if (/[+\-*/]/.test(raw)) {
+      const result = safeCalc(raw);
+      if (result !== null) {
+        onChange(result);
+        setRaw(String(result));
+        return String(result);
+      }
+    }
+    return raw;
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitCalc(e.currentTarget);
+      focusNext(e.currentTarget);
+    }
+  }
+
+  function handleBlur(e: React.FocusEvent<HTMLInputElement>) {
+    setFocused(false);
+    commitCalc(e.currentTarget);
+  }
+
+  function handleFocus(e: React.FocusEvent<HTMLInputElement>) {
+    setFocused(true);
+    setRaw(value != null && value !== "" ? String(value) : "");
+    setTimeout(() => e.target.select(), 0);
+  }
+
+  return (
+    <div className="bg-card rounded-2xl p-5 border border-line">
+      <p className="text-cream font-semibold mb-1">{field.field_label}</p>
+      {field.help_text && <p className="text-muted text-xs mb-3">{field.help_text}</p>}
+      <input
+        type="text"
+        inputMode="decimal"
+        value={displayVal}
+        onChange={handleChange}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        placeholder={field.placeholder || "0"}
+        className={`w-full bg-card-hi text-cream rounded-xl px-4 py-4 text-3xl font-black ltr-num border outline-none transition-colors ${
+          error ? "border-red" : "border-line focus:border-green"
+        }`}
+        dir="ltr"
+      />
+      {focused && raw && /[+\-*/]/.test(raw) && (() => {
+        const r = safeCalc(raw);
+        return r !== null ? (
+          <p className="text-green text-sm mt-1 ltr-num">= {r}</p>
+        ) : null;
+      })()}
+      {error && <p className="text-red text-xs mt-2">{error}</p>}
+    </div>
+  );
+}
+
+/* ─── المكون الرئيسي ─── */
 export default function DynamicField({ field, value, onChange, error }: DynamicFieldProps) {
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -71,26 +186,9 @@ export default function DynamicField({ field, value, onChange, error }: DynamicF
     );
   }
 
-  // NUMBER TYPE
+  // NUMBER TYPE — مع حاسبة + Enter للانتقال + بدون أسهم
   if (field.field_type === "number") {
-    return (
-      <div className="bg-card rounded-2xl p-5 border border-line">
-        <p className="text-cream font-semibold mb-1">{field.field_label}</p>
-        {field.help_text && <p className="text-muted text-xs mb-3">{field.help_text}</p>}
-        <input
-          type="number"
-          inputMode="numeric"
-          value={value || ""}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={field.placeholder || "0"}
-          className={`w-full bg-card-hi text-cream rounded-xl px-4 py-4 text-3xl font-black ltr-num border outline-none transition-colors ${
-            error ? "border-red" : "border-line focus:border-green"
-          }`}
-          dir="ltr"
-        />
-        {error && <p className="text-red text-xs mt-2">{error}</p>}
-      </div>
-    );
+    return <NumberField field={field} value={value} onChange={onChange} error={error} />;
   }
 
   // TEXTAREA TYPE
@@ -158,7 +256,7 @@ export default function DynamicField({ field, value, onChange, error }: DynamicF
     );
   }
 
-  // TEXT TYPE (default)
+  // TEXT TYPE (default) — مع Enter للانتقال
   return (
     <div className="bg-card rounded-2xl p-5 border border-line">
       <p className="text-cream font-semibold mb-1">{field.field_label}</p>
@@ -167,6 +265,7 @@ export default function DynamicField({ field, value, onChange, error }: DynamicF
         type="text"
         value={value || ""}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); focusNext(e.currentTarget); } }}
         placeholder={field.placeholder || ""}
         className={`w-full bg-card-hi text-cream rounded-xl px-4 py-3 border outline-none ${
           error ? "border-red" : "border-line focus:border-green"
