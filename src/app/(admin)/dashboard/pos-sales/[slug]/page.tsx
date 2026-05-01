@@ -26,12 +26,12 @@ const fmtNum = (n: number) =>
   n.toLocaleString("ar-SA-u-nu-latn", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 const fmtTime = (s: string) => {
-  try { return new Date(s).toLocaleTimeString("ar-SA-u-nu-latn", { hour: "2-digit", minute: "2-digit" }); }
+  try { return new Date(s).toLocaleTimeString("ar-SA-u-nu-latn", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Riyadh" }); }
   catch { return s; }
 };
 
 const fmtDate = (s: string) => {
-  try { return new Date(s).toLocaleDateString("ar-SA-u-nu-latn", { day: "numeric", month: "short" }); }
+  try { return new Date(s).toLocaleDateString("ar-SA-u-nu-latn", { day: "numeric", month: "short", timeZone: "Asia/Riyadh" }); }
   catch { return s; }
 };
 
