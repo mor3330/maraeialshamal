@@ -122,7 +122,6 @@ if %errorlevel% EQU 0 (
 )
 echo.
 timeout /t 4 /nobreak >nul
-(goto) 2>nul & del "%~f0"
 goto :eof
 
 :: ══════════════════════════════════════════════════════
@@ -222,7 +221,6 @@ echo   ║  المزامنة تعمل وستبدأ تلقائياً دائماً
 echo   ╚══════════════════════════════════════════╝
 echo.
 timeout /t 5 /nobreak >nul
-(goto) 2>nul & del "%~f0"
 goto :eof
 
 :cleanup_no_del
