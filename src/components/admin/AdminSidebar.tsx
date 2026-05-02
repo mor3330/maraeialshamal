@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
-import { clearAdminSession } from "@/lib/admin-store";
+import { useEffect, useState } from "react";
+import { clearAdminSession, getAdminSession } from "@/lib/admin-store";
 
 function IconUsers() { return <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>; }
 
@@ -30,31 +30,45 @@ type NavItem = {
   href: string;
   label: string;
   Icon: () => JSX.Element;
+  permKey: string; // مفتاح الصلاحية
 };
 
 const NAV: NavItem[] = [
-  { href: "/dashboard",                    label: "الرئيسية",             Icon: IconHome     },
-  { href: "/dashboard/branches",           label: "الفروع",               Icon: IconBranch   },
-  { href: "/dashboard/reports",            label: "التقارير",             Icon: IconReport   },
-  { href: "/dashboard/request-report",     label: "طلب تقرير",            Icon: IconSend     },
-  { href: "/dashboard/pos-sales",          label: "مبيعات POS",           Icon: IconMonitor  },
-  { href: "/dashboard/products",           label: "تصنيف المنتجات",       Icon: IconTag      },
-  { href: "/dashboard/exports",            label: "الصادرات",             Icon: IconExport   },
-  { href: "/dashboard/waste-comparison",   label: "مقارنة المخلفات",      Icon: IconScale    },
-  { href: "/dashboard/purchases",          label: "المشتريات",            Icon: IconCart     },
-  { href: "/dashboard/purchases-log",      label: "سجل المشتريات",        Icon: IconList     },
-  { href: "/dashboard/external-sales",     label: "المبيعات الخارجية",    Icon: IconExchange },
-  { href: "/dashboard/external-sales-log", label: "سجل المبيعات الخارجية", Icon: IconReport },
-  { href: "/dashboard/print",              label: "طباعة التقرير",         Icon: IconPrinter  },
-  { href: "/dashboard/vat-report",         label: "تقرير الضريبة (VAT)",   Icon: IconVAT      },
-  { href: "/dashboard/stats",              label: "الإحصائيات",            Icon: IconChart    },
-  { href: "/dashboard/settings",           label: "الإعدادات",             Icon: IconSettings },
+  { href: "/dashboard",                    label: "الرئيسية",               Icon: IconHome,     permKey: "dashboard"          },
+  { href: "/dashboard/branches",           label: "الفروع",                 Icon: IconBranch,   permKey: "branches"           },
+  { href: "/dashboard/reports",            label: "التقارير",               Icon: IconReport,   permKey: "reports"            },
+  { href: "/dashboard/request-report",     label: "طلب تقرير",              Icon: IconSend,     permKey: "request-report"     },
+  { href: "/dashboard/pos-sales",          label: "مبيعات POS",             Icon: IconMonitor,  permKey: "pos-sales"          },
+  { href: "/dashboard/products",           label: "تصنيف المنتجات",         Icon: IconTag,      permKey: "products"           },
+  { href: "/dashboard/exports",            label: "الصادرات",               Icon: IconExport,   permKey: "exports"            },
+  { href: "/dashboard/waste-comparison",   label: "مقارنة المخلفات",        Icon: IconScale,    permKey: "waste-comparison"   },
+  { href: "/dashboard/purchases",          label: "المشتريات",              Icon: IconCart,     permKey: "purchases"          },
+  { href: "/dashboard/purchases-log",      label: "سجل المشتريات",          Icon: IconList,     permKey: "purchases-log"      },
+  { href: "/dashboard/external-sales",     label: "المبيعات الخارجية",      Icon: IconExchange, permKey: "external-sales"     },
+  { href: "/dashboard/external-sales-log", label: "سجل المبيعات الخارجية", Icon: IconReport,   permKey: "external-sales-log" },
+  { href: "/dashboard/print",              label: "طباعة التقرير",          Icon: IconPrinter,  permKey: "print"              },
+  { href: "/dashboard/vat-report",         label: "تقرير الضريبة (VAT)",    Icon: IconVAT,      permKey: "vat-report"         },
+  { href: "/dashboard/stats",              label: "الإحصائيات",             Icon: IconChart,    permKey: "stats"              },
+  { href: "/dashboard/settings",           label: "الإعدادات",              Icon: IconSettings, permKey: "settings"           },
 ];
 
 export default function AdminSidebar() {
   const pathname = usePathname();
   const router   = useRouter();
   const [showPinModal, setShowPinModal] = useState(false);
+
+  // ── قراءة جلسة المستخدم من sessionStorage ────────────
+  const [session, setSession] = useState<ReturnType<typeof getAdminSession>>(null);
+  useEffect(() => { setSession(getAdminSession()); }, []);
+
+  // ── تحديد العناصر المسموح بعرضها ─────────────────────
+  const isSuperAdmin = !session || session.role === "superadmin";
+  const visibleNav = isSuperAdmin
+    ? NAV
+    : NAV.filter(item => session.permissions?.[item.permKey] === true);
+
+  // اسم المستخدم للعرض
+  const userName = session?.name ?? "المدير";
   const [current,  setCurrent]  = useState("");
   const [next1,    setNext1]    = useState("");
   const [next2,    setNext2]    = useState("");
@@ -106,11 +120,20 @@ export default function AdminSidebar() {
           </div>
           <h2 className="text-base font-black text-cream">مراعي الشمال</h2>
           <p className="text-muted text-xs mt-0.5">لوحة الإدارة</p>
+          {session && (
+            <div className="mt-2 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-green flex-shrink-0" />
+              <span className="text-xs text-cream font-medium truncate">{userName}</span>
+              {session.role === "superadmin" && (
+                <span className="text-[10px] bg-green/20 text-green rounded-full px-1.5 py-0.5">مدير</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Nav */}
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-          {NAV.map(item => {
+          {visibleNav.map(item => {
             const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
             return (
               <Link key={item.href} href={item.href}

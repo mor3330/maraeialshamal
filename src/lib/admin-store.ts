@@ -1,10 +1,16 @@
 // الجلسة محمية بـ httpOnly cookie يضعها /api/admin/verify-pin
-// هذا الملف يحتفظ فقط بحالة UI المحلية (هل عرضنا PIN؟)
+// هذا الملف يحتفظ بحالة UI المحلية + بيانات المستخدم
+
 export const ADMIN_SESSION_KEY = "marai_admin_ui";
 
 export interface AdminSession {
   loggedIn: boolean;
   loginAt: number;
+  role: "superadmin" | "user";
+  name: string;
+  userId?: string;
+  permissions: Record<string, boolean>; // {} = كل الصلاحيات لـ superadmin
+  allowed_branches: string[] | null;    // null = كل الفروع
 }
 
 export function getAdminSession(): AdminSession | null {
@@ -23,16 +29,28 @@ export function getAdminSession(): AdminSession | null {
   }
 }
 
-export function saveAdminSession() {
-  // الـ cookie تُضبط من الخادم — نخزن هنا فقط لإخفاء شاشة الـ PIN
-  const session: AdminSession = { loggedIn: true, loginAt: Date.now() };
+export function saveAdminSession(data?: {
+  role?: "superadmin" | "user";
+  name?: string;
+  userId?: string;
+  permissions?: Record<string, boolean>;
+  allowed_branches?: string[] | null;
+}) {
+  const session: AdminSession = {
+    loggedIn: true,
+    loginAt: Date.now(),
+    role: data?.role ?? "superadmin",
+    name: data?.name ?? "المدير",
+    userId: data?.userId,
+    permissions: data?.permissions ?? {},
+    allowed_branches: data?.allowed_branches ?? null,
+  };
   sessionStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(session));
 }
 
 export function clearAdminSession() {
   if (typeof window !== "undefined") {
     sessionStorage.removeItem(ADMIN_SESSION_KEY);
-    // احذف الـ cookie بعمر 0
     document.cookie = "admin_token=; max-age=0; path=/";
   }
 }

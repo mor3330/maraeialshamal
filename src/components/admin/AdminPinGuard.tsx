@@ -39,7 +39,14 @@ export default function AdminPinGuard({ children }: { children: React.ReactNode 
         body: JSON.stringify({ pin: code }),
       });
       if (res.ok) {
-        saveAdminSession();
+        const json = await res.json().catch(() => ({}));
+        saveAdminSession({
+          role: json.role ?? "superadmin",
+          name: json.name,
+          userId: json.userId,
+          permissions: json.permissions,
+          allowed_branches: json.allowed_branches,
+        });
         setAuthed(true);
       } else {
         setError("رمز الدخول غير صحيح");
