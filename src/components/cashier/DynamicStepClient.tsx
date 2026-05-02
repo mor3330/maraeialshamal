@@ -43,6 +43,8 @@ export default function DynamicStepClient({
     syncedInvoices: number;
     hasCategoryData?: boolean;
     byCategory?: Record<string, { qty: number; amount: number }>;
+    unclassifiedAmount?: number;
+    unclassifiedQty?: number;
   }>(null);
   const [aroniumLoading, setAroniumLoading] = useState(false);
   const [aroniumApplied, setAroniumApplied] = useState(false);
@@ -685,6 +687,31 @@ export default function DynamicStepClient({
                   >
                     ✓ تعبئة الفئات تلقائياً
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* تنبيه: منتجات غير مصنفة */}
+            {!aroniumLoading && aroniumData && (aroniumData.unclassifiedAmount ?? 0) > 0 && (
+              <div className="rounded-2xl border border-orange-400/30 bg-orange-400/5 px-4 py-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-lg flex-shrink-0">⚠️</span>
+                  <div className="flex-1">
+                    <p className="text-orange-300 text-sm font-bold">
+                      منتجات غير مصنفة: {(aroniumData.unclassifiedAmount ?? 0).toLocaleString("ar-SA-u-nu-latn")} ر.س
+                    </p>
+                    <p className="text-muted text-xs mt-1">
+                      يوجد مبيعات لم تُصنَّف بعد — صنّفها من لوحة الإدارة حتى تُضاف للفئات الصحيحة
+                    </p>
+                    <a
+                      href="/dashboard/products"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block mt-2 text-xs text-orange-300 underline hover:text-orange-200"
+                    >
+                      ← اذهب لتصنيف المنتجات
+                    </a>
+                  </div>
                 </div>
               </div>
             )}

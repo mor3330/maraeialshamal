@@ -18,6 +18,8 @@ interface SaleItemRow {
   total: number | null;
 }
 
+const round = (n: number) => Math.round(n * 100) / 100;
+
 // ─── تجميع مبيعات Aronium لفرع ويوم معين ───
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
@@ -80,7 +82,7 @@ export async function GET(request: NextRequest) {
     mappings[m.aronium_name] = m.category;
   }
 
-  // ─── تجميع الأرقام ───
+  // ─── تجميع الأرقام من الفواتير (المصدر الموثوق لـ totalSales) ───
   let totalSales   = 0, totalReturns = 0, invoiceCount = 0;
   let cashAmount   = 0, networkAmount = 0, transferAmount = 0, deferredAmount = 0;
 
@@ -117,6 +119,17 @@ export async function GET(request: NextRequest) {
     byCategory[cat as keyof typeof byCategory].amount += Number(item.total    || 0);
   }
 
+  // ─── توزيع نسبي: نضمن أن مجموع الفئات = totalSales تماماً ───
+  // (الفرق يحدث بسبب خصومات الفاتورة الكلية في Aronium التي لا تنعكس على الأصناف)
+  const totalItemsAmount = Object.values(byCategory).reduce((s, c) => s + c.amount, 0);
+  if (totalItemsAmount > 0 && totalSales > 0) {
+    const ratio = totalSales / totalItemsAmount;
+    for (const cat of Object.keys(byCategory)) {
+      const c = byCategory[cat as keyof typeof byCategory];
+      c.amount = Math.round(c.amount * ratio * 100) / 100;
+    }
+  }
+
   const hasCategoryData = Object.values(byCategory).some(c => c.amount > 0);
 
   // ─── آخر مزامنة ───
@@ -128,8 +141,6 @@ export async function GET(request: NextRequest) {
     .order("sync_end", { ascending: false })
     .limit(1)
     .single();
-
-  const round = (n: number) => Math.round(n * 100) / 100;
 
   return NextResponse.json({
     found: true,
@@ -151,6 +162,9 @@ export async function GET(request: NextRequest) {
       offal: { qty: round(byCategory.offal.qty), amount: round(byCategory.offal.amount) },
       other: { qty: round(byCategory.other.qty), amount: round(byCategory.other.amount) },
     },
+    // المبلغ غير المصنف - للتنبيه بضرورة التصنيف
+    unclassifiedAmount: round(byCategory.other.amount),
+    unclassifiedQty:    round(byCategory.other.qty),
     lastSync:       rawSyncLog?.sync_end ?? null,
     syncedInvoices: rawSyncLog?.sales_count ?? salesRows.length,
   });
