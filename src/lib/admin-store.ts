@@ -23,6 +23,12 @@ export function getAdminSession(): AdminSession | null {
       sessionStorage.removeItem(ADMIN_SESSION_KEY);
       return null;
     }
+    // إذا الجلسة قديمة وما فيها role — نعاملها كسوبر أدمن
+    if (!session.role) {
+      session.role = "superadmin";
+      session.permissions = {};
+      session.allowed_branches = null;
+    }
     return session;
   } catch {
     return null;

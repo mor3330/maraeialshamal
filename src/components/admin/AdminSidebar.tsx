@@ -62,7 +62,7 @@ export default function AdminSidebar() {
   useEffect(() => { setSession(getAdminSession()); }, []);
 
   // ── تحديد العناصر المسموح بعرضها ─────────────────────
-  const isSuperAdmin = !session || session.role === "superadmin";
+  const isSuperAdmin = !session || !session.role || session.role === "superadmin";
   const visibleNav = isSuperAdmin
     ? NAV
     : NAV.filter(item => session.permissions?.[item.permKey] === true);
@@ -264,17 +264,17 @@ export default function AdminSidebar() {
                   <label className="text-muted text-sm block mb-1">الرمز الحالي</label>
                   <input type="password" inputMode="numeric" maxLength={8}
                     className="w-full bg-bg border border-line rounded-xl px-4 py-3 text-cream focus:outline-none focus:border-green/50"
-                    value={current} onChange={e => setCurrent(e.target.value)} />
+                    value={current} onChange={e => setCurrent(e.target.value.replace(/\D/g, "").slice(0, 6))} />
                 </div>
                 <div>
-                  <label className="text-muted text-sm block mb-1">الرمز الجديد</label>
-                  <input type="password" inputMode="numeric" maxLength={8}
+                  <label className="text-muted text-sm block mb-1">الرمز الجديد (6 أرقام)</label>
+                  <input type="password" inputMode="numeric" maxLength={6}
                     className="w-full bg-bg border border-line rounded-xl px-4 py-3 text-cream focus:outline-none focus:border-green/50"
-                    value={next1} onChange={e => setNext1(e.target.value)} />
+                    value={next1} onChange={e => setNext1(e.target.value.replace(/\D/g, "").slice(0, 6))} />
                 </div>
                 <div>
                   <label className="text-muted text-sm block mb-1">تأكيد الرمز الجديد</label>
-                  <input type="password" inputMode="numeric" maxLength={8}
+                  <input type="password" inputMode="numeric" maxLength={6}
                     className="w-full bg-bg border border-line rounded-xl px-4 py-3 text-cream focus:outline-none focus:border-green/50"
                     value={next2} onChange={e => setNext2(e.target.value)} />
                 </div>

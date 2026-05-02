@@ -24,6 +24,7 @@ export default function AdminPinGuard({ children }: { children: React.ReactNode 
       setError("");
       return;
     }
+    if (pin.length >= 6) return; // لا يقبل أكثر من 6 أرقام
     const next = pin + digit;
     setPin(next);
     if (next.length === 6) submit(next);

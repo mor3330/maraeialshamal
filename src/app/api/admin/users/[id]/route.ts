@@ -7,8 +7,13 @@ const sb = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 ) as any;
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /* PATCH — تعديل مستخدم */
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!params.id || !UUID_RE.test(params.id)) {
+    return NextResponse.json({ error: "معرّف المستخدم غير صحيح" }, { status: 400 });
+  }
   try {
     const body = await req.json();
     const update: Record<string, any> = { updated_at: new Date().toISOString() };
@@ -36,6 +41,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 /* DELETE — حذف مستخدم */
 export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
+  if (!params.id || !UUID_RE.test(params.id)) {
+    return NextResponse.json({ error: "معرّف المستخدم غير صحيح" }, { status: 400 });
+  }
   const { error } = await sb.from("admin_users").delete().eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
