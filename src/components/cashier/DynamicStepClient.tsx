@@ -166,10 +166,12 @@ export default function DynamicStepClient({
   function validate() {
     const errs: Record<string, string> = {};
     fields.forEach(field => {
-      if (field.is_required && !values[field.id]) {
+      const v = values[field.id];
+      const isEmpty = v === undefined || v === null || v === "";
+      if (field.is_required && isEmpty) {
         errs[field.id] = `${field.field_label} مطلوب`;
       }
-      
+
       // Number validation
       if (field.field_type === "number" && values[field.id]) {
         if (isNaN(Number(values[field.id])) || Number(values[field.id]) < 0) {

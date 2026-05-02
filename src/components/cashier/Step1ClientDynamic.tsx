@@ -55,7 +55,9 @@ export default function Step1ClientDynamic({ slug }: { slug: string }) {
   function validate() {
     const errs: Record<string, string> = {};
     fields.forEach(field => {
-      if (field.is_required && !values[field.id]) {
+      const v = values[field.id];
+      const isEmpty = v === undefined || v === null || v === "";
+      if (field.is_required && isEmpty) {
         errs[field.id] = `${field.field_label} مطلوب`;
       }
       // Special validation for numbers
