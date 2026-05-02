@@ -1,37 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// استخدام any لتجاوز TypeScript type checking للجداول الجديدة
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+) as any;
 
 /* ── توليد رقم القيد ── */
 async function generateEntryNumber(): Promise<string> {
-  // أولاً: حاول RPC من قاعدة البيانات
   try {
     const { data, error } = await supabase.rpc("next_entry_number");
     if (!error && data) return data as string;
   } catch {}
 
-  // ثانياً: fallback آمن — timestamp بالمللي ثانية → base36 (فريد دائماً)
-  const year = new Date().getFullYear().toString().slice(-2); // 26
-  const ts   = Date.now().toString(36).toUpperCase();         // مثال: LHS7XAB
-  const rand = Math.random().toString(36).slice(2, 5).toUpperCase(); // 3 حروف عشوائية
+  const year = new Date().getFullYear().toString().slice(-2);
+  const ts   = Date.now().toString(36).toUpperCase();
+  const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
   const candidate = `JE-${year}-${ts}-${rand}`;
 
-  // تأكد من عدم التكرار (في حالة نادرة جداً)
-  const { data: existing } = await supabase
-    .from("journal_entries")
-    .select("id")
-    .eq("entry_number", candidate)
-    .maybeSingle();
-
-  if (existing) {
-    // إعادة توليد مع تأخير بسيط
-    await new Promise(r => setTimeout(r, 2));
-    return `JE-${year}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;
-  }
+  try {
+    const { data: existing } = await supabase
+      .from("journal_entries")
+      .select("id")
+      .eq("entry_number", candidate)
+      .maybeSingle();
+    if (existing) {
+      await new Promise(r => setTimeout(r, 2));
+      return `JE-${year}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;
+    }
+  } catch {}
 
   return candidate;
 }
@@ -49,32 +47,19 @@ export async function GET(
   const to   = url.searchParams.get("to");
 
   try {
-    // 1) بيانات المورد — نجلب الأعمدة الأساسية أولاً
-    const { data: supplierBase, error: sErr } = await supabase
+    // 1) بيانات المورد
+    const { data: supplier, error: sErr } = await supabase
       .from("suppliers")
-      .select("id,name,phone,notes")
+      .select("*")
       .eq("id", supplierId)
       .single();
 
-    if (sErr || !supplierBase) {
+    if (sErr || !supplier) {
       return NextResponse.json({ error: "المورد غير موجود — " + (sErr?.message ?? "no data") }, { status: 404 });
     }
 
-    // نحاول جلب الأعمدة الإضافية (قد لا تكون موجودة بعد)
-    let extraCols: Record<string, any> = {};
-    try {
-      const { data: extra } = await supabase
-        .from("suppliers")
-        .select("opening_balance,opening_balance_date,credit_limit,payment_terms_days,tax_number,bank_details")
-        .eq("id", supplierId)
-        .single();
-      if (extra) extraCols = extra;
-    } catch {}
-
-    const supplier: Record<string, any> = { ...supplierBase, ...extraCols };
-
-    // 2) جلب سطور القيود للمورد — select("*") يجلب ما هو موجود فعلاً
-    const { data: rawLines, error: lErr } = await (supabase as any)
+    // 2) جلب سطور القيود للمورد
+    const { data: rawLines, error: lErr } = await supabase
       .from("journal_lines")
       .select("*")
       .eq("supplier_id", supplierId);
@@ -88,13 +73,12 @@ export async function GET(
       });
     }
 
-    // جلب القيود المرتبطة
-    const entryIds = [...new Set((rawLines ?? []).map((l: any) => l.journal_entry_id))];
+    // 3) جلب القيود المرتبطة
+    const entryIds = [...new Set((rawLines ?? []).map((l: any) => l.journal_entry_id).filter(Boolean))];
     let lines: any[] = [];
 
     if (entryIds.length > 0) {
-      // select("*") يجلب كل الأعمدة الموجودة بدون فشل بسبب أعمدة مفقودة
-      let entQ = (supabase as any)
+      let entQ = supabase
         .from("journal_entries")
         .select("*")
         .in("id", entryIds)
@@ -103,9 +87,13 @@ export async function GET(
       if (from) entQ = entQ.gte("entry_date", from);
       if (to)   entQ = entQ.lte("entry_date", to);
 
-      const { data: entries } = await entQ
+      const { data: entries, error: entErr } = await entQ
         .order("entry_date", { ascending: true })
         .order("created_at", { ascending: true });
+
+      if (entErr) {
+        console.error("entries query error:", entErr);
+      }
 
       const entryMap = new Map((entries ?? []).map((e: any) => [e.id, e]));
 
@@ -119,7 +107,7 @@ export async function GET(
         });
     }
 
-    // 3) حساب الرصيد الجاري
+    // 4) حساب الرصيد الجاري
     const opening = Number(supplier.opening_balance ?? 0);
     let running   = opening;
 
@@ -150,8 +138,8 @@ export async function GET(
       };
     });
 
-    const totalDebit  = transactions.reduce((s, t) => s + t.debit,  0);
-    const totalCredit = transactions.reduce((s, t) => s + t.credit, 0);
+    const totalDebit  = transactions.reduce((s: number, t: any) => s + t.debit,  0);
+    const totalCredit = transactions.reduce((s: number, t: any) => s + t.credit, 0);
 
     return NextResponse.json({
       supplier,
@@ -160,13 +148,12 @@ export async function GET(
     });
   } catch (err) {
     console.error("ledger GET error:", err);
-    return NextResponse.json({ error: "خطأ في الخادم" }, { status: 500 });
+    return NextResponse.json({ error: "خطأ في الخادم: " + String(err) }, { status: 500 });
   }
 }
 
 /* ══════════════════════════════════════════════
    POST /api/suppliers/[id]/ledger
-   إنشاء قيد يومية جديد مع دعم رفع الملفات
 ══════════════════════════════════════════════ */
 export async function POST(
   req: NextRequest,
@@ -182,8 +169,7 @@ export async function POST(
       description,
       hijri_date,
       amount,
-      direction,           // "debit" | "credit"
-      // حقول الفاتورة
+      direction,
       supplier_invoice_number,
       supplier_invoice_date,
       due_date,
@@ -191,7 +177,6 @@ export async function POST(
       amount_before_vat,
       vat_amount,
       line_items,
-      // حقول الدفع
       payment_method,
       bank_name,
       transaction_reference,
@@ -199,117 +184,97 @@ export async function POST(
       check_date,
       check_status,
       received_by,
-      // حقول التسوية
       adjustment_reason,
-      // حقول مشتركة
       cost_center,
       notes,
-      reference_number,    // deprecated, use supplier_invoice_number
-      // ملفات (URLs بعد الرفع)
+      reference_number,
       document_urls = [],
-      // تفاصيل المشتريات (قديم)
       quantity,
       unit_price,
       item_type,
     } = body;
 
-    // ── تحقق أساسي ──
-    if (!entry_date) return NextResponse.json({ error: "التاريخ مطلوب" }, { status: 400 });
-    if (!description?.trim()) return NextResponse.json({ error: "البيان مطلوب" }, { status: 400 });
-    if (!amount) return NextResponse.json({ error: "المبلغ مطلوب" }, { status: 400 });
-    if (!direction) return NextResponse.json({ error: "اتجاه القيد مطلوب" }, { status: 400 });
+    if (!entry_date)         return NextResponse.json({ error: "التاريخ مطلوب" },           { status: 400 });
+    if (!description?.trim()) return NextResponse.json({ error: "البيان مطلوب" },           { status: 400 });
+    if (!amount)              return NextResponse.json({ error: "المبلغ مطلوب" },            { status: 400 });
+    if (!direction)           return NextResponse.json({ error: "اتجاه القيد مطلوب" },      { status: 400 });
 
     const amt = Number(amount);
     if (isNaN(amt) || amt <= 0) return NextResponse.json({ error: "المبلغ غير صحيح" }, { status: 400 });
 
-    // ── توليد رقم القيد ──
     const entryNumber = await generateEntryNumber();
 
-    // ── إنشاء القيد الرئيسي ──
-    const entryPayload: Record<string, any> = {
-      entry_number:    entryNumber,
+    // بناء payload الأساسي (مضمون الوجود في كل النسخ)
+    const basePayload: Record<string, any> = {
+      entry_number: entryNumber,
       entry_date,
       entry_type,
-      source_type:     "manual",
+      source_type:  "manual",
       description,
-      notes,
-      hijri_date:      hijri_date || null,
-      total_debit:     amt,
-      total_credit:    amt,
-      status:          "posted",
-      posted_at:       new Date().toISOString(),
-      created_by:      "admin",
-      document_urls:   document_urls,
-      cost_center:     cost_center || null,
+      notes:        notes || null,
+      total_debit:  amt,
+      total_credit: amt,
+      status:       "posted",
+      posted_at:    new Date().toISOString(),
+      created_by:   "admin",
     };
 
-    // حقول حسب النوع
+    // حقول إضافية — حسب النوع
+    const extraPayload: Record<string, any> = {
+      hijri_date:              hijri_date || null,
+      document_urls:           document_urls || [],
+      cost_center:             cost_center || null,
+    };
+
     if (entry_type === "purchase") {
-      entryPayload.supplier_invoice_number = supplier_invoice_number || null;
-      entryPayload.supplier_invoice_date   = supplier_invoice_date   || null;
-      entryPayload.due_date                = due_date                || null;
-      entryPayload.includes_vat            = includes_vat            ?? false;
-      entryPayload.amount_before_vat       = amount_before_vat       || null;
-      entryPayload.vat_amount              = vat_amount              || null;
-      entryPayload.line_items              = line_items              || null;
-      entryPayload.reference_number        = supplier_invoice_number || reference_number || null;
+      extraPayload.supplier_invoice_number = supplier_invoice_number || null;
+      extraPayload.supplier_invoice_date   = supplier_invoice_date   || null;
+      extraPayload.due_date                = due_date                || null;
+      extraPayload.includes_vat            = includes_vat            ?? false;
+      extraPayload.amount_before_vat       = amount_before_vat       || null;
+      extraPayload.vat_amount              = vat_amount              || null;
+      extraPayload.line_items              = line_items              || null;
+      extraPayload.reference_number        = supplier_invoice_number || reference_number || null;
     } else if (entry_type === "payment") {
-      entryPayload.payment_method          = payment_method          || null;
-      entryPayload.bank_name               = bank_name               || null;
-      entryPayload.transaction_reference   = transaction_reference   || null;
-      entryPayload.check_number            = check_number            || null;
-      entryPayload.check_date              = check_date              || null;
-      entryPayload.check_status            = check_status            || null;
-      entryPayload.received_by             = received_by             || null;
+      extraPayload.payment_method          = payment_method          || null;
+      extraPayload.bank_name               = bank_name               || null;
+      extraPayload.transaction_reference   = transaction_reference   || null;
+      extraPayload.check_number            = check_number            || null;
+      extraPayload.check_date              = check_date              || null;
+      extraPayload.check_status            = check_status            || null;
+      extraPayload.received_by             = received_by             || null;
     } else if (entry_type === "adjustment") {
-      entryPayload.adjustment_reason       = adjustment_reason       || null;
+      extraPayload.adjustment_reason       = adjustment_reason       || null;
     } else {
-      entryPayload.reference_number        = reference_number        || null;
+      extraPayload.reference_number        = reference_number        || null;
     }
 
-    // حاول الإدراج الكامل أولاً، وإن فشل (عمود مفقود) جرب الحقول الأساسية
+    // محاولة 1: الـ payload الكامل
     let entry: any = null;
-    let eErr: any = null;
+    let eErr: any  = null;
 
-    ({ data: entry, error: eErr } = await (supabase as any)
+    ({ data: entry, error: eErr } = await supabase
       .from("journal_entries")
-      .insert(entryPayload)
+      .insert({ ...basePayload, ...extraPayload })
       .select()
       .single());
 
+    // محاولة 2: الـ payload الأساسي فقط (احتياط إن كانت أعمدة مفقودة)
     if (eErr) {
-      console.warn("Full insert failed, trying minimal:", eErr.message);
-      // حقول أساسية مضمونة الوجود من migration 28
-      const minimalPayload: Record<string, any> = {
-        entry_number:    entryNumber,
-        entry_date,
-        entry_type,
-        source_type:     "manual",
-        description,
-        notes,
-        total_debit:     amt,
-        total_credit:    amt,
-        status:          "posted",
-        posted_at:       new Date().toISOString(),
-        created_by:      "admin",
-      };
-      if (reference_number || supplier_invoice_number) {
-        minimalPayload.reference_number = supplier_invoice_number || reference_number;
-      }
-
-      ({ data: entry, error: eErr } = await (supabase as any)
+      console.warn("Full insert failed, retrying with base payload:", eErr.message);
+      ({ data: entry, error: eErr } = await supabase
         .from("journal_entries")
-        .insert(minimalPayload)
+        .insert(basePayload)
         .select()
         .single());
     }
 
     if (eErr || !entry) {
       console.error("journal entry insert error:", eErr);
-      return NextResponse.json({ error: "فشل إنشاء القيد: " + (eErr?.message || "خطأ غير معروف") }, { status: 500 });
+      return NextResponse.json({ error: "فشل إنشاء القيد: " + (eErr?.message ?? "خطأ غير معروف") }, { status: 500 });
     }
 
-    // ── سطر المورد ──
+    // سطر المورد
     const supplierLine: Record<string, any> = {
       journal_entry_id: entry.id,
       line_number:      1,
@@ -317,12 +282,12 @@ export async function POST(
       debit:            direction === "debit"  ? amt : 0,
       credit:           direction === "credit" ? amt : 0,
       description,
-      quantity:         quantity   || null,
-      unit_price:       unit_price || null,
-      item_type:        item_type  || null,
+      quantity:   quantity   ? Number(quantity)   : null,
+      unit_price: unit_price ? Number(unit_price) : null,
+      item_type:  item_type  || null,
     };
 
-    // ── سطر المقابل ──
+    // سطر المقابل
     const counterLine: Record<string, any> = {
       journal_entry_id: entry.id,
       line_number:      2,
@@ -339,19 +304,10 @@ export async function POST(
       .insert([supplierLine, counterLine]);
 
     if (lErr) {
+      // تراجع: احذف القيد
       await supabase.from("journal_entries").delete().eq("id", entry.id);
       console.error("journal lines error:", lErr);
       return NextResponse.json({ error: "فشل إنشاء سطور القيد: " + lErr.message }, { status: 500 });
-    }
-
-    // ── تحديث المستندات بربطها بالقيد ──
-    if (document_urls?.length > 0) {
-      await supabase
-        .from("supplier_documents")
-        .update({ journal_entry_id: entry.id })
-        .eq("supplier_id", supplierId)
-        .is("journal_entry_id", null)
-        .in("storage_url", document_urls);
     }
 
     return NextResponse.json({ success: true, entryNumber, entryId: entry.id });
@@ -362,8 +318,7 @@ export async function POST(
 }
 
 /* ══════════════════════════════════════════════
-   PATCH /api/suppliers/[id]/ledger
-   إلغاء قيد
+   PATCH /api/suppliers/[id]/ledger — إلغاء قيد
 ══════════════════════════════════════════════ */
 export async function PATCH(
   req: NextRequest,
@@ -376,9 +331,9 @@ export async function PATCH(
     const { error } = await supabase
       .from("journal_entries")
       .update({
-        status:     "voided",
-        voided_at:  new Date().toISOString(),
-        voided_by:  "admin",
+        status:      "voided",
+        voided_at:   new Date().toISOString(),
+        voided_by:   "admin",
         void_reason: voidReason || "ألغي من قِبل المدير",
       })
       .eq("id", entryId);

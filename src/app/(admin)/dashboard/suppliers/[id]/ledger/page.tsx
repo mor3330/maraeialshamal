@@ -291,6 +291,7 @@ export default function SupplierLedgerPage() {
   const id      = params.id as string;
 
   const [loading, setLoading]         = useState(true);
+  const [loadError, setLoadError]     = useState("");
   const [supplier, setSupplier]       = useState<SupplierInfo | null>(null);
   const [transactions, setTrans]      = useState<Transaction[]>([]);
   const [summary, setSummary]         = useState<Summary | null>(null);
@@ -302,14 +303,21 @@ export default function SupplierLedgerPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const qs = new URLSearchParams({ from: range.from, to: range.to });
       const res = await fetch(`/api/suppliers/${id}/ledger?${qs}`);
-      if (!res.ok) { console.error("ledger load failed"); return; }
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = json?.error || `HTTP ${res.status}`;
+        setLoadError("خطأ في تحميل البيانات: " + msg);
+        return;
+      }
       setSupplier(json.supplier);
       setTrans(json.transactions ?? []);
       setSummary(json.summary ?? null);
+    } catch (e: any) {
+      setLoadError("خطأ في الاتصال: " + e.message);
     } finally {
       setLoading(false);
     }
@@ -489,6 +497,20 @@ export default function SupplierLedgerPage() {
             </button>
           </div>
         </div>
+
+        {/* ─── خطأ تحميل ─── */}
+        {loadError && (
+          <div className="mb-4 rounded-2xl border border-red-500/30 bg-red-500/5 p-4 flex items-center gap-3">
+            <span className="text-2xl">⚠️</span>
+            <div className="flex-1">
+              <p className="font-bold text-red-400 text-sm">خطأ في تحميل كشف الحساب</p>
+              <p className="text-red-300/70 text-xs mt-0.5 font-mono">{loadError}</p>
+            </div>
+            <button onClick={load} className="rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 px-3 py-1.5 text-xs font-bold">
+              إعادة المحاولة
+            </button>
+          </div>
+        )}
 
         {/* ─── Statement Table ─── */}
         <div className="rounded-[24px] border border-[#2a3830] bg-[#0f1511] overflow-hidden">
