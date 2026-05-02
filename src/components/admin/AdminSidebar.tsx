@@ -59,6 +59,13 @@ export default function AdminSidebar() {
   const [pinError, setPinError] = useState("");
   const [pinSuccess, setPinSuccess] = useState(false);
   const [saving,   setSaving]   = useState(false);
+  // قائمة محمد طه — تفتح تلقائياً إذا كنا في الصفحات المرتبطة
+  const [mtOpen, setMtOpen]     = useState(
+    () =>
+      pathname.startsWith("/dashboard/purchases-review") ||
+      pathname.startsWith("/dashboard/suppliers") ||
+      pathname.startsWith("/dashboard/mt-ledger")
+  );
 
   function handleLogout() {
     clearAdminSession();
@@ -120,20 +127,54 @@ export default function AdminSidebar() {
 
           {/* ── قسم محمد طه ── */}
           <div className="pt-3 mt-2 border-t border-line space-y-0.5">
-            <Link
-              href="/dashboard/purchases-review"
-              className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 transition-all group ${
-                pathname.startsWith("/dashboard/purchases-review")
+            {/* زر التوسّع */}
+            <button
+              onClick={() => setMtOpen(o => !o)}
+              className={`w-full flex items-center gap-3 rounded-2xl px-4 py-2.5 transition-all group text-right ${
+                pathname.startsWith("/dashboard/purchases-review") || pathname.startsWith("/dashboard/suppliers")
                   ? "bg-amber/15 text-amber border border-amber/20"
                   : "text-muted hover:text-cream hover:bg-card-hi"
               }`}
             >
               <div className="w-6 h-6 rounded-lg bg-amber/20 flex items-center justify-center text-xs font-black text-amber flex-shrink-0">م</div>
-              <div className="flex-1">
+              <div className="flex-1 text-right">
                 <p className="text-sm font-bold">محمد طه</p>
-                <p className="text-xs text-muted group-hover:text-muted">مراجعة المشتريات</p>
+                <p className="text-xs text-muted">المورد الرئيسي</p>
               </div>
-            </Link>
+              <span className={`text-[10px] text-muted transition-transform duration-200 ${mtOpen ? "rotate-90" : ""}`}>▶</span>
+            </button>
+
+            {/* القائمة الفرعية */}
+            {mtOpen && (
+              <div className="mr-4 border-r border-line/40 pr-2 space-y-0.5">
+                <Link
+                  href="/dashboard/purchases-review"
+                  className={`flex items-center gap-2 rounded-xl px-3 py-2 transition-all ${
+                    pathname.startsWith("/dashboard/purchases-review")
+                      ? "bg-amber/10 text-amber"
+                      : "text-muted hover:text-cream hover:bg-card-hi"
+                  }`}
+                >
+                  <div>
+                    <p className="font-medium text-xs">مراجعة المشتريات</p>
+                    <p className="text-[10px] text-muted">فواتير الشراء الشهرية</p>
+                  </div>
+                </Link>
+                <Link
+                  href="/dashboard/mt-ledger"
+                  className={`flex items-center gap-2 rounded-xl px-3 py-2 transition-all ${
+                    pathname.startsWith("/dashboard/mt-ledger") || pathname.startsWith("/dashboard/suppliers/")
+                      ? "bg-green/10 text-green"
+                      : "text-muted hover:text-cream hover:bg-card-hi"
+                  }`}
+                >
+                  <div>
+                    <p className="font-medium text-xs">النظام المحاسبي</p>
+                    <p className="text-[10px] text-muted">دفتر الأستاذ والحسابات</p>
+                  </div>
+                </Link>
+              </div>
+            )}
 
             {/* ── قسم المحصلين ── */}
             <Link

@@ -21,7 +21,16 @@ function getDefaultRange() {
 }
 
 /* ─── Types ─── */
-type ReportType = "profit" | "sales" | "purchases" | "external-sales" | "exports" | "waste-comparison";
+type ReportType = "profit" | "sales" | "purchases" | "external-sales" | "exports" | "waste-comparison" | "shortages";
+
+/* ── نوع بيانات العجوزات ── */
+interface ShortageAnimal {
+  previous: number; incoming: number; sales: number;
+  outgoing: number; offal: number; expected: number;
+  actual: number; shortage: number;
+}
+interface ShortageEntry { date: string; hashi: ShortageAnimal; sheep: ShortageAnimal; beef: ShortageAnimal; }
+interface ShortagesBranch { branchName: string; entries: ShortageEntry[]; }
 
 interface CategoryData {
   purchaseQty: number; purchaseWeight: number; purchaseValue: number;
@@ -91,6 +100,7 @@ function ReportCard({ type, title, desc, active, onClick }: {
     "external-sales":  "border-purple-500/40 bg-purple-500/10 text-purple-300",
     exports:           "border-orange-500/40 bg-orange-500/10 text-orange-300",
     "waste-comparison":"border-rose-500/40 bg-rose-500/10 text-rose-300",
+    shortages:         "border-red-500/40 bg-red-500/10 text-red-400",
   };
   return (
     <button onClick={onClick}
@@ -956,6 +966,109 @@ function ExternalSalesReportPrint({ data, range }: { data: ExtSale[]; range: { f
 }
 
 /* ══════════════════════════════════════════
+   Print: تقرير العجوزات
+══════════════════════════════════════════ */
+function ShortagesReportPrint({ data, range }: { data: ShortagesBranch[]; range: { from: string; to: string } }) {
+  const animals: { key: "hashi" | "sheep" | "beef"; label: string; color: string; bg: string; border: string }[] = [
+    { key: "hashi", label: "الحاشي",  color: "#0369a1", bg: "#f0f9ff", border: "#bae6fd" },
+    { key: "sheep", label: "الغنم",   color: "#166534", bg: "#f0fdf4", border: "#bbf7d0" },
+    { key: "beef",  label: "العجل",   color: "#92400e", bg: "#fffbeb", border: "#fde68a" },
+  ];
+
+  if (data.length === 0) {
+    return (
+      <div className="text-gray-900" dir="rtl">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-10 text-center">
+          <p className="text-red-700 font-black text-xl mb-2">لا توجد تقارير في هذه الفترة</p>
+        </div>
+      </div>
+    );
+  }
+
+  const tdBase: React.CSSProperties = { padding: "6px 8px", textAlign: "center", borderRight: "1px solid #e5e7eb" };
+
+  return (
+    <div className="text-gray-900 font-[Readex_Pro,Tajawal,sans-serif]" dir="rtl">
+      {data.map((branch) => (
+        <div key={branch.branchName} className="branch-block rounded-2xl border border-gray-200 overflow-hidden mb-6">
+          {/* رأس الفرع */}
+          <div className="branch-header flex items-center px-5 py-3 bg-[#0f1511] text-white gap-3">
+            <span className="font-black text-lg">{branch.branchName}</span>
+            <span className="text-xs text-[#8a9690]">— {branch.entries.length} تقرير</span>
+          </div>
+
+          {/* الأصناف الثلاثة لحالها */}
+          {animals.map((animal) => (
+            <div key={animal.key} className="mb-0">
+              {/* عنوان الصنف */}
+              <div style={{ background: animal.bg, borderBottom: `2px solid ${animal.border}`, padding: "5px 16px" }}>
+                <span style={{ color: animal.color, fontWeight: 800, fontSize: "13px" }}>{animal.label}</span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table style={{ width: "100%", tableLayout: "fixed", fontSize: "12px", borderCollapse: "collapse" }} dir="ltr">
+                  <colgroup>
+                    <col style={{ width: "12%" }}/>
+                    <col style={{ width: "12%" }}/>
+                    <col style={{ width: "12%" }}/>
+                    <col style={{ width: "12%" }}/>
+                    <col style={{ width: "12%" }}/>
+                    <col style={{ width: "12%" }}/>
+                    <col style={{ width: "14%" }}/>
+                    <col style={{ width: "14%" }}/>
+                  </colgroup>
+                  <thead>
+                    <tr style={{ background: animal.bg, borderBottom: `1px solid ${animal.border}`, fontWeight: 700, fontSize: "11px" }}>
+                      <th style={{ ...tdBase, textAlign: "right", color: "#374151" }}>التاريخ</th>
+                      <th style={{ ...tdBase, color: "#6b7280" }}>رصيد أمس</th>
+                      <th style={{ ...tdBase, color: "#0369a1" }}>الوارد</th>
+                      <th style={{ ...tdBase, color: "#166534" }}>المبيعات</th>
+                      <th style={{ ...tdBase, color: "#92400e" }}>الصادر</th>
+                      <th style={{ ...tdBase, color: "#6b21a8" }}>المخلفات</th>
+                      <th style={{ ...tdBase, color: "#059669" }}>المفروض يتبقى</th>
+                      <th style={{ padding: "6px 8px", textAlign: "center", fontWeight: 800, color: "#dc2626" }}>العجز / الزيادة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {branch.entries.map((entry, i) => {
+                      const a = entry[animal.key];
+                      const shortage = a.shortage; // سالب = عجز حقيقي، موجب = زيادة
+                      const isShortage = shortage < -0.01;
+                      const isSurplus  = shortage > 0.01;
+                      return (
+                        <tr key={entry.date} style={{
+                          borderBottom: "1px solid #f3f4f6",
+                          background: i % 2 === 0 ? "#fff" : "#fafafa",
+                        }}>
+                          <td style={{ ...tdBase, textAlign: "right", color: "#374151", fontWeight: 600 }}>{fmtDate(entry.date)}</td>
+                          <td style={{ ...tdBase, color: "#6b7280" }}>{fmt(a.previous, 2)}</td>
+                          <td style={{ ...tdBase, color: "#0369a1", fontWeight: 600 }}>{fmt(a.incoming, 2)}</td>
+                          <td style={{ ...tdBase, color: "#166534", fontWeight: 600 }}>{fmt(a.sales, 2)}</td>
+                          <td style={{ ...tdBase, color: "#92400e" }}>{fmt(a.outgoing, 2)}</td>
+                          <td style={{ ...tdBase, color: "#6b21a8" }}>{fmt(a.offal, 2)}</td>
+                          <td style={{ ...tdBase, color: "#059669", fontWeight: 600 }}>{fmt(a.expected, 2)}</td>
+                          <td style={{
+                            padding: "6px 8px", textAlign: "center", fontWeight: 800, fontSize: "13px",
+                            color: isShortage ? "#dc2626" : isSurplus ? "#16a34a" : "#9ca3af",
+                            background: isShortage ? "#fef2f2" : isSurplus ? "#f0fdf4" : "transparent",
+                          }}>
+                            {isShortage ? `عجز ${fmt(Math.abs(shortage), 2)}` : isSurplus ? `+${fmt(shortage, 2)}` : "صفر"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
    Print: Wrapper مع هيدر وفوتر
 ══════════════════════════════════════════ */
 function PrintWrapper({ reportType, range, children, loading }: {
@@ -969,6 +1082,7 @@ function PrintWrapper({ reportType, range, children, loading }: {
     "external-sales":  "تقرير المبيعات الخارجية",
     exports:           "تقرير الصادرات",
     "waste-comparison":"تقرير مقارنة المخلفات",
+    shortages:         "تقرير العجوزات",
   };
   const now = new Date().toLocaleDateString("ar-SA-u-nu-latn", {
     day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Riyadh",
@@ -1023,6 +1137,7 @@ export default function PrintReportsPage() {
   const [salesData, setSalesData] = useState<SalesData | null>(null);
   const [externalSalesData, setExternalSalesData] = useState<any[] | null>(null);
   const [purchasesData, setPurchasesData] = useState<PurchaseRow[] | null>(null);
+  const [shortagesData, setShortagesData] = useState<ShortagesBranch[] | null>(null);
   const [error, setError] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -1082,6 +1197,20 @@ export default function PrintReportsPage() {
     }
   }, []);
 
+  const loadShortagesData = useCallback(async (from: string, to: string) => {
+    setLoading(true); setError(""); setShortagesData(null);
+    try {
+      const res = await fetch(`/api/admin/shortages-report?from=${from}&to=${to}`);
+      if (!res.ok) { setError("تعذر تحميل بيانات العجوزات"); return; }
+      const json = await res.json();
+      setShortagesData(json.rows ?? []);
+    } catch {
+      setError("تعذر الاتصال بالخادم");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   function handlePrint() {
     window.print();
   }
@@ -1093,6 +1222,7 @@ export default function PrintReportsPage() {
     { type: "external-sales"   as ReportType, title: "المبيعات الخارجية",   desc: "تقرير مبيعات الحملات والعروض الخارجية خارج الفروع" },
     { type: "exports"          as ReportType, title: "الصادرات",            desc: "تقرير الصادرات وكميات المواد المُصدَّرة من الفروع" },
     { type: "waste-comparison" as ReportType, title: "مقارنة المخلفات",     desc: "مقارنة بيانات المخلفات وكمياتها بين الفروع والفترات" },
+    { type: "shortages"        as ReportType, title: "العجوزات",             desc: "يوضح العجز في كل فرع لكل صنف (حاشي، غنم، عجل) بالتفصيل" },
   ];
 
   return (
@@ -1185,6 +1315,7 @@ export default function PrintReportsPage() {
                 if (selectedType === "sales")           loadSalesData(range.from, range.to);
                 if (selectedType === "purchases")       loadPurchasesData(range.from, range.to);
                 if (selectedType === "external-sales")  loadExternalSalesData(range.from, range.to);
+                if (selectedType === "shortages")       loadShortagesData(range.from, range.to);
               }}
                 className="rounded-2xl bg-green hover:bg-green-dark disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold px-8 py-3.5 text-sm transition-all hover:scale-[1.02]">
                 معاينة التقرير →
@@ -1277,6 +1408,12 @@ export default function PrintReportsPage() {
                       <p className="text-rose-500 text-sm">هذا التقرير قيد التطوير — سيكون متاحاً قريباً</p>
                     </div>
                   </div>
+                )}
+                {selectedType === "shortages" && shortagesData && (
+                  <ShortagesReportPrint data={shortagesData} range={range} />
+                )}
+                {selectedType === "shortages" && !shortagesData && !loading && (
+                  <div className="text-center py-12 text-gray-400">لا توجد تقارير في هذه الفترة</div>
                 )}
               </PrintWrapper>
             </div>

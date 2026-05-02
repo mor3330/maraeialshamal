@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 interface Supplier {
@@ -17,6 +17,19 @@ export default function SuppliersPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // إغلاق القائمة عند النقر خارجها
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setActiveMenu(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
   
   const [formData, setFormData] = useState({
     name: "",
@@ -146,27 +159,68 @@ export default function SuppliersPage() {
                 </tr>
               </thead>
               <tbody>
-                {suppliers.map(s => (
-                  <tr key={s.id} className="border-b border-line/50 hover:bg-card-hi/50 transition-colors">
-                    <td className="p-4 font-bold">{s.name}</td>
-                    <td className="p-4 text-muted">{s.phone || "-"}</td>
-                    <td className="p-4 text-muted text-sm">{s.notes || "-"}</td>
-                    <td className="p-4">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => handleEdit(s)}
-                          className="rounded-lg bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1 text-blue-500 text-sm font-medium">
-                          تعديل
-                        </button>
-                        <button
-                          onClick={() => handleDelete(s.id)}
-                          className="rounded-lg bg-red/10 hover:bg-red/20 px-3 py-1 text-red text-sm font-medium">
-                          حذف
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                 {suppliers.map(s => (
+                   <tr key={s.id} className="border-b border-line/50 hover:bg-card-hi/50 transition-colors">
+                     {/* اسم المورد — قابل للنقر */}
+                     <td className="p-4">
+                       <div className="relative inline-block" ref={activeMenu === s.id ? menuRef : undefined}>
+                         <button
+                           onClick={() => setActiveMenu(activeMenu === s.id ? null : s.id)}
+                           className="font-bold text-cream hover:text-green transition-colors flex items-center gap-2 group">
+                           {s.name}
+                           <span className="text-[10px] text-muted group-hover:text-green transition-colors">▾</span>
+                         </button>
+
+                         {/* قائمة الخيارات */}
+                         {activeMenu === s.id && (
+                           <div className="absolute top-full right-0 mt-1 w-52 rounded-2xl border border-line bg-card shadow-2xl z-50 overflow-hidden">
+                             <div className="p-2 border-b border-line/50">
+                               <p className="text-xs text-muted px-2 py-1">{s.name}</p>
+                             </div>
+                             <div className="p-1">
+                               {/* سجل المشتريات */}
+                               <button
+                                 onClick={() => { setActiveMenu(null); router.push(`/dashboard/purchases-review?supplierId=${s.id}`); }}
+                                 className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-card-hi transition-colors text-right">
+                                 <span className="w-8 h-8 rounded-lg bg-amber/10 flex items-center justify-center text-amber text-sm">📦</span>
+                                 <div>
+                                   <p className="text-sm font-bold text-cream">سجل المشتريات</p>
+                                   <p className="text-[10px] text-muted">مراجعة فواتير الشراء</p>
+                                 </div>
+                               </button>
+                               {/* النظام المحاسبي */}
+                               <button
+                                 onClick={() => { setActiveMenu(null); router.push(`/dashboard/suppliers/${s.id}/ledger`); }}
+                                 className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-card-hi transition-colors text-right">
+                                 <span className="w-8 h-8 rounded-lg bg-green/10 flex items-center justify-center text-green text-sm">📒</span>
+                                 <div>
+                                   <p className="text-sm font-bold text-cream">النظام المحاسبي</p>
+                                   <p className="text-[10px] text-muted">دفتر الأستاذ والحسابات</p>
+                                 </div>
+                               </button>
+                             </div>
+                           </div>
+                         )}
+                       </div>
+                     </td>
+                     <td className="p-4 text-muted">{s.phone || "-"}</td>
+                     <td className="p-4 text-muted text-sm">{s.notes || "-"}</td>
+                     <td className="p-4">
+                       <div className="flex items-center justify-center gap-2">
+                         <button
+                           onClick={() => handleEdit(s)}
+                           className="rounded-lg bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1 text-blue-500 text-sm font-medium">
+                           تعديل
+                         </button>
+                         <button
+                           onClick={() => handleDelete(s.id)}
+                           className="rounded-lg bg-red/10 hover:bg-red/20 px-3 py-1 text-red text-sm font-medium">
+                           حذف
+                         </button>
+                       </div>
+                     </td>
+                   </tr>
+                 ))}
               </tbody>
             </table>
           )}
