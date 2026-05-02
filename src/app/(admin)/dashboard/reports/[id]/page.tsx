@@ -239,8 +239,10 @@ export default function ReportDetailPage() {
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "فشل الحفظ"); }
 
-      // ── حفظ رصيد اليوم السابق دائماً إذا وُجد تقرير سابق ──
-      if (prevBal?.previousReportId) {
+      // ── حفظ رصيد اليوم السابق ──
+      const prevId = prevBal?.previousReportId;
+      if (prevId) {
+        // يوجد تقرير سابق → حدّث المتبقي فيه مباشرة
         const prevBody = {
           stepDataUpdate: {
             step5Named: {
@@ -250,31 +252,21 @@ export default function ReportDetailPage() {
             },
           },
         };
-        const prevRes = await fetch(`/api/admin/reports/${prevBal.previousReportId}`, {
+        await fetch(`/api/admin/reports/${prevId}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prevBody),
         });
-        if (!prevRes.ok) throw new Error("فشل حفظ رصيد اليوم السابق");
-      } else {
-        // لا يوجد تقرير سابق — أعد تحميل prevBal وحاول مرة أخرى
-        const fresh = await fetch(`/api/reports/previous-balance?branchId=${data.report.branch_id}&date=${data.report.report_date}`);
-        const freshJson = await fresh.json();
-        const freshPrevId = freshJson?.data?.previousReportId;
-        if (freshPrevId) {
-          const prevBody = {
-            stepDataUpdate: {
-              step5Named: {
-                hashi_remaining: pf(ed.prev_hashi),
-                sheep_remaining: pf(ed.prev_sheep),
-                beef_remaining:  pf(ed.prev_beef),
-              },
-            },
-          };
-          const prevRes = await fetch(`/api/admin/reports/${freshPrevId}`, {
-            method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prevBody),
-          });
-          if (!prevRes.ok) throw new Error("فشل حفظ رصيد اليوم السابق");
-        }
       }
+      // دائماً: احفظ override في التقرير الحالي (يُستخدم عند غياب تقرير أمس)
+      await fetch(`/api/admin/reports/${reportId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prev_balance_override: {
+            hashi: pf(ed.prev_hashi),
+            sheep: pf(ed.prev_sheep),
+            beef:  pf(ed.prev_beef),
+          },
+        }),
+      });
 
       setShowEditModal(false);
       await loadReport();
