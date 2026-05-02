@@ -1,160 +1,178 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// استخدام any لتجاوز TypeScript type checking للجداول الجديدة
-const supabase = createClient(
+/* ── supabase as any لتجاوز TypeScript للجداول الجديدة ── */
+const sb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 ) as any;
 
 /* ── توليد رقم القيد ── */
-async function generateEntryNumber(): Promise<string> {
+async function nextEntryNum(): Promise<string> {
   try {
-    const { data, error } = await supabase.rpc("next_entry_number");
-    if (!error && data) return data as string;
+    const { data, error } = await sb.rpc("next_entry_number");
+    if (!error && data) return String(data);
   } catch {}
-
-  const year = new Date().getFullYear().toString().slice(-2);
-  const ts   = Date.now().toString(36).toUpperCase();
-  const rand = Math.random().toString(36).slice(2, 5).toUpperCase();
-  const candidate = `JE-${year}-${ts}-${rand}`;
-
-  try {
-    const { data: existing } = await supabase
-      .from("journal_entries")
-      .select("id")
-      .eq("entry_number", candidate)
-      .maybeSingle();
-    if (existing) {
-      await new Promise(r => setTimeout(r, 2));
-      return `JE-${year}-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,5).toUpperCase()}`;
-    }
-  } catch {}
-
-  return candidate;
+  const y = new Date().getFullYear();
+  const { data: rows } = await sb
+    .from("journal_entries")
+    .select("entry_number")
+    .like("entry_number", `JE-${y}-%`);
+  const nums = (rows ?? []).map((r: any) => {
+    const m = String(r.entry_number).match(/(\d+)$/);
+    return m ? parseInt(m[1]) : 0;
+  });
+  const next = (Math.max(0, ...nums) + 1).toString().padStart(5, "0");
+  return `JE-${y}-${next}`;
 }
 
-/* ══════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════
    GET /api/suppliers/[id]/ledger
-══════════════════════════════════════════════ */
+══════════════════════════════════════════════════════ */
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   const supplierId = params.id;
   const url  = new URL(req.url);
-  const from = url.searchParams.get("from");
-  const to   = url.searchParams.get("to");
+  const from = url.searchParams.get("from") || "2000-01-01";
+  const to   = url.searchParams.get("to")   || "2099-12-31";
 
   try {
-    // 1) بيانات المورد
-    const { data: supplier, error: sErr } = await supabase
+    /* 1. بيانات المورد */
+    const { data: supplier, error: sErr } = await sb
       .from("suppliers")
       .select("*")
       .eq("id", supplierId)
       .single();
 
     if (sErr || !supplier) {
-      return NextResponse.json({ error: "المورد غير موجود — " + (sErr?.message ?? "no data") }, { status: 404 });
+      return NextResponse.json(
+        { error: "المورد غير موجود — " + (sErr?.message ?? "لا بيانات") },
+        { status: 404 }
+      );
     }
 
-    // 2) جلب سطور القيود للمورد
-    const { data: rawLines, error: lErr } = await supabase
-      .from("journal_lines")
+    /* 2. جلب القيود عبر supplier_statement VIEW (تشمل كل الحسابات) */
+    const { data: viewRows, error: vErr } = await sb
+      .from("supplier_statement")
       .select("*")
-      .eq("supplier_id", supplierId);
+      .eq("supplier_id", supplierId)
+      .gte("entry_date", from)
+      .lte("entry_date", to);
 
-    if (lErr) {
-      console.error("ledger lines error:", lErr);
-      return NextResponse.json({
-        supplier,
-        transactions: [],
-        summary: { openingBalance: supplier.opening_balance ?? 0, totalDebit: 0, totalCredit: 0, balance: supplier.opening_balance ?? 0 }
-      });
-    }
+    /* fallback: إذا لم تعمل الـ VIEW، نستخدم الـ JOIN اليدوي */
+    let rows: any[] = viewRows ?? [];
 
-    // 3) جلب القيود المرتبطة
-    const entryIds = [...new Set((rawLines ?? []).map((l: any) => l.journal_entry_id).filter(Boolean))];
-    let lines: any[] = [];
+    if (vErr || !viewRows) {
+      console.warn("supplier_statement view failed, using manual join:", vErr?.message);
 
-    if (entryIds.length > 0) {
-      let entQ = supabase
-        .from("journal_entries")
+      /* جلب سطور المورد */
+      const { data: lines } = await sb
+        .from("journal_lines")
         .select("*")
-        .in("id", entryIds)
-        .neq("status", "voided");
+        .eq("supplier_id", supplierId);
 
-      if (from) entQ = entQ.gte("entry_date", from);
-      if (to)   entQ = entQ.lte("entry_date", to);
+      if (lines && lines.length > 0) {
+        const entryIds = [...new Set(lines.map((l: any) => l.journal_entry_id).filter(Boolean))];
 
-      const { data: entries, error: entErr } = await entQ
-        .order("entry_date", { ascending: true })
-        .order("created_at", { ascending: true });
+        const { data: entries } = await sb
+          .from("journal_entries")
+          .select("*")
+          .in("id", entryIds)
+          .neq("status", "voided")
+          .gte("entry_date", from)
+          .lte("entry_date", to)
+          .order("entry_date", { ascending: true });
 
-      if (entErr) {
-        console.error("entries query error:", entErr);
-      }
+        const entryMap = new Map<string, any>((entries ?? []).map((e: any) => [e.id, e]));
 
-      const entryMap = new Map((entries ?? []).map((e: any) => [e.id, e]));
+        rows = lines
+          .filter((l: any) => entryMap.has(l.journal_entry_id))
+          .map((l: any) => {
+            const e: any = entryMap.get(l.journal_entry_id);
+            return {
+              entry_id:         l.journal_entry_id,
+              entry_number:     e?.entry_number,
+              entry_date:       e?.entry_date,
+              hijri_date:       e?.hijri_date,
+              description:      e?.description || l.description,
+              reference_number: e?.supplier_invoice_number || e?.reference_number,
+              entry_type:       e?.entry_type,
+              status:           e?.status,
+              source_type:      e?.source_type,
+              source_id:        e?.source_id,
+              created_at:       e?.created_at,
+              supplier_id:      l.supplier_id,
+              debit:            l.debit,
+              credit:           l.credit,
+              line_description: l.description,
+              quantity:         l.quantity,
+              unit_price:       l.unit_price,
+              item_type:        l.item_type,
+              running_balance:  null, // نحسبها بعدين
+            };
+          })
+          .sort((a: any, b: any) => {
+            const da = a.entry_date ?? "";
+            const db = b.entry_date ?? "";
+            return da < db ? -1 : da > db ? 1 : 0;
+          });
 
-      lines = (rawLines ?? [])
-        .filter((l: any) => entryMap.has(l.journal_entry_id))
-        .map((l: any) => ({ ...l, journal_entries: entryMap.get(l.journal_entry_id) }))
-        .sort((a: any, b: any) => {
-          const da = a.journal_entries?.entry_date ?? "";
-          const db = b.journal_entries?.entry_date ?? "";
-          return da < db ? -1 : da > db ? 1 : 0;
+        /* حساب running_balance يدوياً */
+        let running = Number(supplier.opening_balance ?? 0);
+        rows = rows.map((r: any) => {
+          running += Number(r.debit ?? 0) - Number(r.credit ?? 0);
+          return { ...r, running_balance: running };
         });
+      }
     }
 
-    // 4) حساب الرصيد الجاري
+    /* 3. تحويل إلى تنسيق الصفحة */
     const opening = Number(supplier.opening_balance ?? 0);
-    let running   = opening;
 
-    const transactions = (lines ?? []).map((line: any) => {
-      const debit  = Number(line.debit  ?? 0);
-      const credit = Number(line.credit ?? 0);
-      running += debit - credit;
-      return {
-        id:              line.id,
-        entryId:         line.journal_entry_id,
-        entryNumber:     line.journal_entries?.entry_number,
-        entryDate:       line.journal_entries?.entry_date,
-        hijriDate:       line.journal_entries?.hijri_date,
-        description:     line.journal_entries?.description || line.description,
-        lineDescription: line.description,
-        referenceNumber: line.journal_entries?.supplier_invoice_number || line.journal_entries?.reference_number,
-        entryType:       line.journal_entries?.entry_type,
-        sourceType:      line.journal_entries?.source_type,
-        notes:           line.journal_entries?.notes,
-        paymentMethod:   line.journal_entries?.payment_method,
-        costCenter:      line.journal_entries?.cost_center,
-        documentUrls:    line.journal_entries?.document_urls ?? [],
-        debit, credit,
-        quantity:        line.quantity,
-        unitPrice:       line.unit_price,
-        itemType:        line.item_type,
-        runningBalance:  running,
-      };
-    });
+    const transactions = rows.map((r: any) => ({
+      id:              r.id ?? (r.entry_id + "_" + r.supplier_id),
+      entryId:         r.entry_id,
+      entryNumber:     r.entry_number,
+      entryDate:       r.entry_date,
+      hijriDate:       r.hijri_date,
+      description:     r.description,
+      lineDescription: r.line_description,
+      referenceNumber: r.reference_number,
+      entryType:       r.entry_type,
+      sourceType:      r.source_type,
+      notes:           r.notes,
+      debit:           Number(r.debit  ?? 0),
+      credit:          Number(r.credit ?? 0),
+      quantity:        r.quantity,
+      unitPrice:       r.unit_price,
+      itemType:        r.item_type,
+      runningBalance:  Number(r.running_balance ?? 0),
+    }));
 
-    const totalDebit  = transactions.reduce((s: number, t: any) => s + t.debit,  0);
-    const totalCredit = transactions.reduce((s: number, t: any) => s + t.credit, 0);
+    const totalDebit  = transactions.reduce((s, t) => s + t.debit,  0);
+    const totalCredit = transactions.reduce((s, t) => s + t.credit, 0);
+    const balance     = opening + totalDebit - totalCredit;
 
     return NextResponse.json({
       supplier,
       transactions,
-      summary: { openingBalance: opening, totalDebit, totalCredit, balance: opening + totalDebit - totalCredit }
+      summary: { openingBalance: opening, totalDebit, totalCredit, balance },
     });
+
   } catch (err) {
     console.error("ledger GET error:", err);
-    return NextResponse.json({ error: "خطأ في الخادم: " + String(err) }, { status: 500 });
+    return NextResponse.json(
+      { error: "خطأ في الخادم: " + String(err) },
+      { status: 500 }
+    );
   }
 }
 
-/* ══════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════
    POST /api/suppliers/[id]/ledger
-══════════════════════════════════════════════ */
+══════════════════════════════════════════════════════ */
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -164,117 +182,84 @@ export async function POST(
   try {
     const body = await req.json();
     const {
-      entry_date,
-      entry_type = "standard",
-      description,
-      hijri_date,
-      amount,
-      direction,
-      supplier_invoice_number,
-      supplier_invoice_date,
-      due_date,
-      includes_vat,
-      amount_before_vat,
-      vat_amount,
-      line_items,
-      payment_method,
-      bank_name,
-      transaction_reference,
-      check_number,
-      check_date,
-      check_status,
-      received_by,
-      adjustment_reason,
-      cost_center,
-      notes,
-      reference_number,
-      document_urls = [],
-      quantity,
-      unit_price,
-      item_type,
+      entry_date, entry_type = "purchase", description, hijri_date,
+      amount, direction,
+      supplier_invoice_number, supplier_invoice_date, due_date,
+      includes_vat, amount_before_vat, vat_amount, line_items,
+      payment_method, bank_name, transaction_reference,
+      check_number, check_date, check_status, received_by,
+      adjustment_reason, cost_center, notes, reference_number,
+      document_urls = [], quantity, unit_price, item_type,
     } = body;
 
-    if (!entry_date)         return NextResponse.json({ error: "التاريخ مطلوب" },           { status: 400 });
-    if (!description?.trim()) return NextResponse.json({ error: "البيان مطلوب" },           { status: 400 });
-    if (!amount)              return NextResponse.json({ error: "المبلغ مطلوب" },            { status: 400 });
-    if (!direction)           return NextResponse.json({ error: "اتجاه القيد مطلوب" },      { status: 400 });
+    if (!entry_date)           return NextResponse.json({ error: "التاريخ مطلوب" },      { status: 400 });
+    if (!description?.trim())  return NextResponse.json({ error: "البيان مطلوب" },        { status: 400 });
+    if (!amount)               return NextResponse.json({ error: "المبلغ مطلوب" },         { status: 400 });
+    if (!direction)            return NextResponse.json({ error: "اتجاه القيد مطلوب" },   { status: 400 });
 
     const amt = Number(amount);
     if (isNaN(amt) || amt <= 0) return NextResponse.json({ error: "المبلغ غير صحيح" }, { status: 400 });
 
-    const entryNumber = await generateEntryNumber();
+    const entryNumber = await nextEntryNum();
 
-    // بناء payload الأساسي (مضمون الوجود في كل النسخ)
-    const basePayload: Record<string, any> = {
+    /* ── payload القيد ── */
+    const entryPayload: Record<string, any> = {
       entry_number: entryNumber,
       entry_date,
       entry_type,
       source_type:  "manual",
       description,
-      notes:        notes || null,
+      notes:        notes    || null,
       total_debit:  amt,
       total_credit: amt,
       status:       "posted",
-      posted_at:    new Date().toISOString(),
       created_by:   "admin",
     };
 
-    // حقول إضافية — حسب النوع
-    const extraPayload: Record<string, any> = {
-      hijri_date:              hijri_date || null,
-      document_urls:           document_urls || [],
-      cost_center:             cost_center || null,
-    };
-
+    /* حقول اختيارية: نضيفها فقط إذا كانت موجودة لتفادي FK violations */
+    if (hijri_date)               entryPayload.hijri_date              = hijri_date;
+    if (cost_center)              entryPayload.cost_center             = cost_center;
+    if (document_urls?.length)    entryPayload.document_urls           = document_urls;
     if (entry_type === "purchase") {
-      extraPayload.supplier_invoice_number = supplier_invoice_number || null;
-      extraPayload.supplier_invoice_date   = supplier_invoice_date   || null;
-      extraPayload.due_date                = due_date                || null;
-      extraPayload.includes_vat            = includes_vat            ?? false;
-      extraPayload.amount_before_vat       = amount_before_vat       || null;
-      extraPayload.vat_amount              = vat_amount              || null;
-      extraPayload.line_items              = line_items              || null;
-      extraPayload.reference_number        = supplier_invoice_number || reference_number || null;
+      if (supplier_invoice_number) entryPayload.supplier_invoice_number = supplier_invoice_number;
+      if (supplier_invoice_date)   entryPayload.supplier_invoice_date   = supplier_invoice_date;
+      if (due_date)                entryPayload.due_date                = due_date;
+      if (includes_vat)            entryPayload.includes_vat            = includes_vat;
+      if (amount_before_vat)       entryPayload.amount_before_vat       = amount_before_vat;
+      if (vat_amount)              entryPayload.vat_amount              = vat_amount;
+      if (line_items?.length)      entryPayload.line_items              = line_items;
+      if (supplier_invoice_number || reference_number)
+        entryPayload.reference_number = supplier_invoice_number || reference_number;
     } else if (entry_type === "payment") {
-      extraPayload.payment_method          = payment_method          || null;
-      extraPayload.bank_name               = bank_name               || null;
-      extraPayload.transaction_reference   = transaction_reference   || null;
-      extraPayload.check_number            = check_number            || null;
-      extraPayload.check_date              = check_date              || null;
-      extraPayload.check_status            = check_status            || null;
-      extraPayload.received_by             = received_by             || null;
+      if (payment_method)          entryPayload.payment_method          = payment_method;
+      if (bank_name)               entryPayload.bank_name               = bank_name;
+      if (transaction_reference)   entryPayload.transaction_reference   = transaction_reference;
+      if (check_number)            entryPayload.check_number            = check_number;
+      if (check_date)              entryPayload.check_date              = check_date;
+      if (check_status)            entryPayload.check_status            = check_status;
+      if (received_by)             entryPayload.received_by             = received_by;
     } else if (entry_type === "adjustment") {
-      extraPayload.adjustment_reason       = adjustment_reason       || null;
-    } else {
-      extraPayload.reference_number        = reference_number        || null;
+      if (adjustment_reason)       entryPayload.adjustment_reason       = adjustment_reason;
+    } else if (reference_number) {
+      entryPayload.reference_number = reference_number;
     }
 
-    // محاولة 1: الـ payload الكامل
-    let entry: any = null;
-    let eErr: any  = null;
-
-    ({ data: entry, error: eErr } = await supabase
+    /* ── إدراج القيد ── */
+    const { data: entry, error: eErr } = await sb
       .from("journal_entries")
-      .insert({ ...basePayload, ...extraPayload })
-      .select()
-      .single());
-
-    // محاولة 2: الـ payload الأساسي فقط (احتياط إن كانت أعمدة مفقودة)
-    if (eErr) {
-      console.warn("Full insert failed, retrying with base payload:", eErr.message);
-      ({ data: entry, error: eErr } = await supabase
-        .from("journal_entries")
-        .insert(basePayload)
-        .select()
-        .single());
-    }
+      .insert(entryPayload)
+      .select("id, entry_number")
+      .single();
 
     if (eErr || !entry) {
-      console.error("journal entry insert error:", eErr);
-      return NextResponse.json({ error: "فشل إنشاء القيد: " + (eErr?.message ?? "خطأ غير معروف") }, { status: 500 });
+      console.error("journal_entries insert error:", JSON.stringify(eErr));
+      return NextResponse.json(
+        { error: "فشل إنشاء القيد: " + (eErr?.message ?? "خطأ مجهول") },
+        { status: 500 }
+      );
     }
 
-    // سطر المورد
+    /* ── سطر المورد ── */
     const supplierLine: Record<string, any> = {
       journal_entry_id: entry.id,
       line_number:      1,
@@ -282,44 +267,45 @@ export async function POST(
       debit:            direction === "debit"  ? amt : 0,
       credit:           direction === "credit" ? amt : 0,
       description,
-      quantity:   quantity   ? Number(quantity)   : null,
-      unit_price: unit_price ? Number(unit_price) : null,
-      item_type:  item_type  || null,
     };
+    if (quantity)   supplierLine.quantity   = Number(quantity);
+    if (unit_price) supplierLine.unit_price = Number(unit_price);
+    if (item_type)  supplierLine.item_type  = item_type;
 
-    // سطر المقابل
+    /* ── سطر المقابل ── */
     const counterLine: Record<string, any> = {
       journal_entry_id: entry.id,
       line_number:      2,
-      supplier_id:      null,
       debit:            direction === "credit" ? amt : 0,
       credit:           direction === "debit"  ? amt : 0,
-      description:      direction === "debit"
-        ? "ذمم الموردين — " + description
-        : "سداد — " + description,
+      description: direction === "debit" ? "ذمم الموردين — " + description : "سداد — " + description,
     };
 
-    const { error: lErr } = await supabase
+    const { error: lErr } = await sb
       .from("journal_lines")
       .insert([supplierLine, counterLine]);
 
     if (lErr) {
-      // تراجع: احذف القيد
-      await supabase.from("journal_entries").delete().eq("id", entry.id);
-      console.error("journal lines error:", lErr);
-      return NextResponse.json({ error: "فشل إنشاء سطور القيد: " + lErr.message }, { status: 500 });
+      /* تراجع */
+      await sb.from("journal_entries").delete().eq("id", entry.id);
+      console.error("journal_lines insert error:", JSON.stringify(lErr));
+      return NextResponse.json(
+        { error: "فشل إنشاء سطور القيد: " + lErr.message },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json({ success: true, entryNumber, entryId: entry.id });
+    return NextResponse.json({ success: true, entryNumber: entry.entry_number, entryId: entry.id });
+
   } catch (err) {
     console.error("ledger POST error:", err);
     return NextResponse.json({ error: "خطأ في الخادم: " + String(err) }, { status: 500 });
   }
 }
 
-/* ══════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════
    PATCH /api/suppliers/[id]/ledger — إلغاء قيد
-══════════════════════════════════════════════ */
+══════════════════════════════════════════════════════ */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -328,7 +314,7 @@ export async function PATCH(
     const { entryId, voidReason } = await req.json();
     if (!entryId) return NextResponse.json({ error: "entryId مطلوب" }, { status: 400 });
 
-    const { error } = await supabase
+    const { error } = await sb
       .from("journal_entries")
       .update({
         status:      "voided",
@@ -340,7 +326,8 @@ export async function PATCH(
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ success: true });
+
   } catch (err) {
-    return NextResponse.json({ error: "خطأ في الخادم" }, { status: 500 });
+    return NextResponse.json({ error: "خطأ في الخادم: " + String(err) }, { status: 500 });
   }
 }
