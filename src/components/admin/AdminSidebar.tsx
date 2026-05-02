@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { clearAdminSession } from "@/lib/admin-store";
 
+function IconUsers() { return <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>; }
+
 // ── أيقونات SVG ──────────────────────────────────────────
 function IconHome()     { return <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h4a1 1 0 001-1v-3h2v3a1 1 0 001 1h4a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>; }
 function IconBranch()   { return <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4zm3 1h2v2H7V5zm0 4h2v2H7V9zm0 4h2v2H7v-2zm4-8h2v2h-2V5zm0 4h2v2h-2V9zm0 4h2v2h-2v-2z" clipRule="evenodd"/></svg>; }
@@ -193,6 +195,17 @@ export default function AdminSidebar() {
 
         {/* User settings + logout */}
         <div className="p-3 border-t border-line space-y-0.5">
+          <Link
+            href="/dashboard/settings/users"
+            className={`w-full flex items-center gap-3 rounded-2xl px-4 py-2.5 text-sm font-medium transition-colors text-right ${
+              pathname.startsWith("/dashboard/settings/users")
+                ? "bg-green/15 text-green border border-green/20"
+                : "text-muted hover:text-cream hover:bg-card-hi"
+            }`}
+          >
+            <span className="flex-shrink-0 opacity-80"><IconUsers /></span>
+            إضافة مستخدم
+          </Link>
           <button
             onClick={() => { setShowPinModal(true); setPinError(""); setPinSuccess(false); }}
             className="w-full flex items-center gap-3 rounded-2xl px-4 py-2.5 text-sm font-medium text-muted hover:text-cream hover:bg-card-hi transition-colors text-right"
