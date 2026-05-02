@@ -49,24 +49,34 @@ export async function GET(
   const to   = url.searchParams.get("to");
 
   try {
-    // 1) بيانات المورد
-    const { data: supplier, error: sErr } = await supabase
+    // 1) بيانات المورد — نجلب الأعمدة الأساسية أولاً
+    const { data: supplierBase, error: sErr } = await supabase
       .from("suppliers")
-      .select("id,name,phone,notes,opening_balance,opening_balance_date,credit_limit,payment_terms_days,tax_number,bank_details")
+      .select("id,name,phone,notes")
       .eq("id", supplierId)
       .single();
 
-    if (sErr || !supplier) {
-      return NextResponse.json({ error: "المورد غير موجود" }, { status: 404 });
+    if (sErr || !supplierBase) {
+      return NextResponse.json({ error: "المورد غير موجود — " + (sErr?.message ?? "no data") }, { status: 404 });
     }
 
-    // 2) جلب سطور القيود للمورد — استعلام بسيط وموثوق
-    const { data: rawLines, error: lErr } = await supabase
+    // نحاول جلب الأعمدة الإضافية (قد لا تكون موجودة بعد)
+    let extraCols: Record<string, any> = {};
+    try {
+      const { data: extra } = await supabase
+        .from("suppliers")
+        .select("opening_balance,opening_balance_date,credit_limit,payment_terms_days,tax_number,bank_details")
+        .eq("id", supplierId)
+        .single();
+      if (extra) extraCols = extra;
+    } catch {}
+
+    const supplier: Record<string, any> = { ...supplierBase, ...extraCols };
+
+    // 2) جلب سطور القيود للمورد — select("*") يجلب ما هو موجود فعلاً
+    const { data: rawLines, error: lErr } = await (supabase as any)
       .from("journal_lines")
-      .select(`
-        id, debit, credit, description, quantity, unit_price, item_type, line_number,
-        journal_entry_id, supplier_id
-      `)
+      .select("*")
       .eq("supplier_id", supplierId);
 
     if (lErr) {
@@ -83,14 +93,10 @@ export async function GET(
     let lines: any[] = [];
 
     if (entryIds.length > 0) {
-      let entQ = supabase
+      // select("*") يجلب كل الأعمدة الموجودة بدون فشل بسبب أعمدة مفقودة
+      let entQ = (supabase as any)
         .from("journal_entries")
-        .select(`
-          id, entry_number, entry_date, hijri_date, description, reference_number,
-          entry_type, source_type, status, notes, created_at,
-          supplier_invoice_number, payment_method, adjustment_reason,
-          includes_vat, vat_amount, document_urls, cost_center
-        `)
+        .select("*")
         .in("id", entryIds)
         .neq("status", "voided");
 
@@ -261,11 +267,42 @@ export async function POST(
       entryPayload.reference_number        = reference_number        || null;
     }
 
-    const { data: entry, error: eErr } = await supabase
+    // حاول الإدراج الكامل أولاً، وإن فشل (عمود مفقود) جرب الحقول الأساسية
+    let entry: any = null;
+    let eErr: any = null;
+
+    ({ data: entry, error: eErr } = await (supabase as any)
       .from("journal_entries")
       .insert(entryPayload)
       .select()
-      .single();
+      .single());
+
+    if (eErr) {
+      console.warn("Full insert failed, trying minimal:", eErr.message);
+      // حقول أساسية مضمونة الوجود من migration 28
+      const minimalPayload: Record<string, any> = {
+        entry_number:    entryNumber,
+        entry_date,
+        entry_type,
+        source_type:     "manual",
+        description,
+        notes,
+        total_debit:     amt,
+        total_credit:    amt,
+        status:          "posted",
+        posted_at:       new Date().toISOString(),
+        created_by:      "admin",
+      };
+      if (reference_number || supplier_invoice_number) {
+        minimalPayload.reference_number = supplier_invoice_number || reference_number;
+      }
+
+      ({ data: entry, error: eErr } = await (supabase as any)
+        .from("journal_entries")
+        .insert(minimalPayload)
+        .select()
+        .single());
+    }
 
     if (eErr || !entry) {
       console.error("journal entry insert error:", eErr);
