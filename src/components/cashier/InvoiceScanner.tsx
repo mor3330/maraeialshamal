@@ -6,10 +6,11 @@ export interface ScannedInvoiceData {
   total_sales: number;
   cash_amount: number;
   network_amount: number;
-  transfer_amount: number;
-  deferred_amount: number;
-  invoice_count: number;
-  returns_value: number;
+  transfer_amount?: number;
+  deferred_amount?: number;
+  invoice_count?: number;
+  returns_value?: number;
+  discounts_value?: number;
 }
 
 interface InvoiceScannerProps {

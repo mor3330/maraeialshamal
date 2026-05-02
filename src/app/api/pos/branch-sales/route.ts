@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 interface SaleRow {
   id: string;
   total: number | null;
+  discount: number | null;
   paid_amount: number | null;
   payment_method: string | null;
   document_type: string | null;
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
   // ─── جلب الفواتير ───
   const { data: rawSales, error: salesErr } = await (supabase as any)
     .from("sales")
-    .select("id, total, paid_amount, payment_method, document_type")
+    .select("id, total, discount, paid_amount, payment_method, document_type")
     .eq("branch_id", branchId)
     .gte("sale_date", fromUTC)
     .lte("sale_date", toUTC);
@@ -83,16 +84,17 @@ export async function GET(request: NextRequest) {
   }
 
   // ─── تجميع الأرقام من الفواتير (المصدر الموثوق لـ totalSales) ───
-  let totalSales   = 0, totalReturns = 0, invoiceCount = 0;
-  let cashAmount   = 0, networkAmount = 0, transferAmount = 0, deferredAmount = 0;
+  let totalSales = 0, totalReturns = 0, invoiceCount = 0, totalDiscounts = 0;
+  let cashAmount = 0, networkAmount = 0, transferAmount = 0, deferredAmount = 0;
 
   for (const row of salesRows) {
     const amount = Number(row.total ?? 0);
     const isReturn = row.document_type?.toLowerCase().includes("refund") ||
                      row.document_type?.toLowerCase().includes("return");
     if (isReturn) { totalReturns += amount; continue; }
-    totalSales   += amount;
-    invoiceCount += 1;
+    totalSales     += amount;
+    totalDiscounts += Number(row.discount ?? 0);
+    invoiceCount   += 1;
 
     const method = (row.payment_method ?? "").toLowerCase();
     const paid   = Number(row.paid_amount ?? row.total ?? 0);
@@ -152,7 +154,8 @@ export async function GET(request: NextRequest) {
     cashAmount:     round(cashAmount),
     networkAmount:  round(networkAmount),
     transferAmount: round(transferAmount),
-    deferredAmount: round(deferredAmount),
+    deferredAmount:  round(deferredAmount),
+    discountsValue:  round(totalDiscounts),
     // بيانات الفئات للخطوة 3
     hasCategoryData,
     byCategory: {

@@ -9,7 +9,7 @@ sync.py - مزامنة Aronium POS مع Supabase
 """
 
 # ─── إصدار السكريبت (يُحدَّث تلقائياً) ──────────────────
-AGENT_VERSION = "2.10"
+AGENT_VERSION = "3.1"
 
 import sqlite3
 import json
@@ -189,7 +189,7 @@ def _fetch_sales(db_path: str, filter_type: str = "incremental",
             FROM Document d
             LEFT JOIN DocumentType dt ON d.DocumentTypeId = dt.Id
             LEFT JOIN User u          ON d.UserId = u.Id
-            WHERE d.DocumentTypeId IN (2, 4)
+            WHERE d.DocumentTypeId IN (1, 2, 3, 4)
               AND {where_clause}
             ORDER BY d.DateCreated ASC
         """, params)

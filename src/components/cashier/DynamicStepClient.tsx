@@ -45,6 +45,7 @@ export default function DynamicStepClient({
     byCategory?: Record<string, { qty: number; amount: number }>;
     unclassifiedAmount?: number;
     unclassifiedQty?: number;
+    discountsValue?: number;
   }>(null);
   const [aroniumLoading, setAroniumLoading] = useState(false);
   const [aroniumApplied, setAroniumApplied] = useState(false);
@@ -99,6 +100,7 @@ export default function DynamicStepClient({
       network_amount:  aroniumData.networkAmount,
       transfer_amount: aroniumData.transferAmount,
       deferred_amount: aroniumData.deferredAmount,
+      discounts_value: aroniumData.discountsValue ?? 0,
     });
     setAroniumApplied(true);
   }
@@ -282,13 +284,14 @@ export default function DynamicStepClient({
   /** عند تطبيق بيانات الفاتورة المقروءة - يربط القيم بمعرّفات الحقول */
   function handleScannerApply(data: ScannedInvoiceData) {
     const mapping: Record<string, number> = {
-      total_sales: data.total_sales,
-      cash_amount: data.cash_amount,
-      network_amount: data.network_amount,
-      transfer_amount: data.transfer_amount,
-      deferred_amount: data.deferred_amount,
-      invoice_count: data.invoice_count,
-      returns_value: data.returns_value,
+      total_sales:     data.total_sales,
+      cash_amount:     data.cash_amount,
+      network_amount:  data.network_amount,
+      transfer_amount: data.transfer_amount  ?? 0,
+      deferred_amount: data.deferred_amount  ?? 0,
+      invoice_count:   data.invoice_count    ?? 0,
+      returns_value:   data.returns_value    ?? 0,
+      discounts_value: data.discounts_value  ?? 0,
     };
 
     setValues(prev => {
