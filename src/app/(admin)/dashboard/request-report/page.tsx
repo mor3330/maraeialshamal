@@ -17,13 +17,21 @@ interface ReportRequest {
   notes: string | null;
   status: string;
   requested_by: string | null;
-  requested_at: string;
+  requested_at: string | null;
+  created_at: string | null;
   completed_at: string | null;
   branches: {
     id: string;
     name: string;
     slug: string;
   };
+}
+
+function fmtDate(d: string | null | undefined) {
+  if (!d) return "—";
+  const parsed = new Date(d);
+  if (isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleString("ar-SA");
 }
 
 export default function RequestReportPage() {
@@ -97,22 +105,25 @@ export default function RequestReportPage() {
         }),
       });
 
+      const resData = await response.json().catch(() => ({}));
+
       if (response.ok) {
         // Reset form
         setBranchId("");
         setRequestedDate("");
         setNotes("");
         setRequestedBy("");
-        
         // Reload requests
         await loadData();
-        alert("تم إرسال الطلب بنجاح!");
+        alert("✅ تم إرسال الطلب بنجاح! سيظهر للفرع فور دخوله.");
       } else {
-        alert("حدث خطأ أثناء إرسال الطلب");
+        const errMsg = resData?.error || resData?.message || `خطأ ${response.status}`;
+        alert(`❌ فشل إرسال الطلب:\n${errMsg}`);
+        console.error("API error:", resData);
       }
     } catch (error) {
       console.error("Error submitting request:", error);
-      alert("حدث خطأ أثناء إرسال الطلب");
+      alert("❌ حدث خطأ في الاتصال بالخادم");
     } finally {
       setSubmitting(false);
     }
@@ -126,14 +137,17 @@ export default function RequestReportPage() {
         body: JSON.stringify({ id, status }),
       });
 
+      const resData = await response.json().catch(() => ({}));
+
       if (response.ok) {
         await loadData();
       } else {
-        alert("حدث خطأ أثناء تحديث الحالة");
+        const errMsg = resData?.error || resData?.message || `خطأ ${response.status}`;
+        alert(`❌ فشل تحديث الحالة:\n${errMsg}`);
       }
     } catch (error) {
       console.error("Error updating status:", error);
-      alert("حدث خطأ أثناء تحديث الحالة");
+      alert("❌ حدث خطأ في الاتصال بالخادم");
     }
   }
 
@@ -305,9 +319,9 @@ export default function RequestReportPage() {
                   )}
                   
                   <div className="mt-3 text-xs text-muted">
-                    <p>تاريخ الطلب: {new Date(request.requested_at).toLocaleString("ar-SA")}</p>
+                    <p>تاريخ الطلب: {fmtDate(request.requested_at ?? request.created_at)}</p>
                     {request.completed_at && (
-                      <p>تاريخ الإكمال: {new Date(request.completed_at).toLocaleString("ar-SA")}</p>
+                      <p>تاريخ الإكمال: {fmtDate(request.completed_at)}</p>
                     )}
                   </div>
                 </div>
