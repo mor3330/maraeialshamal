@@ -31,9 +31,9 @@ async function nextEntryNum(): Promise<string> {
 ══════════════════════════════════════════════════════ */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const supplierId = params.id;
+  const { id: supplierId } = await params;
   const url  = new URL(req.url);
   const from = url.searchParams.get("from") || "2000-01-01";
   const to   = url.searchParams.get("to")   || "2099-12-31";
@@ -53,86 +53,84 @@ export async function GET(
       );
     }
 
-    /* 2. جلب القيود عبر supplier_statement VIEW (تشمل كل الحسابات) */
-    const { data: viewRows, error: vErr } = await sb
-      .from("supplier_statement")
+    /* 2. جلب سطور المورد — السطر الذي فيه قيمة فقط (debit>0 أو credit>0) */
+    const { data: lines, error: lErr } = await sb
+      .from("journal_lines")
       .select("*")
       .eq("supplier_id", supplierId)
-      .gte("entry_date", from)
-      .lte("entry_date", to);
+      .or("debit.gt.0,credit.gt.0");
 
-    /* fallback: إذا لم تعمل الـ VIEW، نستخدم الـ JOIN اليدوي */
-    let rows: any[] = viewRows ?? [];
+    let rows: any[] = [];
 
-    if (vErr || !viewRows) {
-      console.warn("supplier_statement view failed, using manual join:", vErr?.message);
+    if (lErr) {
+      console.error("journal_lines fetch error:", lErr.message);
+    } else if (lines && lines.length > 0) {
+      const entryIds = [...new Set(lines.map((l: any) => l.journal_entry_id).filter(Boolean))];
 
-      /* جلب سطور المورد */
-      const { data: lines } = await sb
-        .from("journal_lines")
+      const { data: entries } = await sb
+        .from("journal_entries")
         .select("*")
-        .eq("supplier_id", supplierId);
+        .in("id", entryIds)
+        .neq("status", "voided")
+        .gte("entry_date", from)
+        .lte("entry_date", to)
+        .order("entry_date", { ascending: true })
+        .order("entry_number", { ascending: true });
 
-      if (lines && lines.length > 0) {
-        const entryIds = [...new Set(lines.map((l: any) => l.journal_entry_id).filter(Boolean))];
+      const entryMap = new Map<string, any>((entries ?? []).map((e: any) => [e.id, e]));
 
-        const { data: entries } = await sb
-          .from("journal_entries")
-          .select("*")
-          .in("id", entryIds)
-          .neq("status", "voided")
-          .gte("entry_date", from)
-          .lte("entry_date", to)
-          .order("entry_date", { ascending: true });
-
-        const entryMap = new Map<string, any>((entries ?? []).map((e: any) => [e.id, e]));
-
-        rows = lines
-          .filter((l: any) => entryMap.has(l.journal_entry_id))
-          .map((l: any) => {
-            const e: any = entryMap.get(l.journal_entry_id);
-            return {
-              entry_id:         l.journal_entry_id,
-              entry_number:     e?.entry_number,
-              entry_date:       e?.entry_date,
-              hijri_date:       e?.hijri_date,
-              description:      e?.description || l.description,
-              reference_number: e?.supplier_invoice_number || e?.reference_number,
-              entry_type:       e?.entry_type,
-              status:           e?.status,
-              source_type:      e?.source_type,
-              source_id:        e?.source_id,
-              created_at:       e?.created_at,
-              supplier_id:      l.supplier_id,
-              debit:            l.debit,
-              credit:           l.credit,
-              line_description: l.description,
-              quantity:         l.quantity,
-              unit_price:       l.unit_price,
-              item_type:        l.item_type,
-              running_balance:  null, // نحسبها بعدين
-            };
-          })
-          .sort((a: any, b: any) => {
-            const da = a.entry_date ?? "";
-            const db = b.entry_date ?? "";
-            return da < db ? -1 : da > db ? 1 : 0;
-          });
-
-        /* حساب running_balance يدوياً */
-        let running = Number(supplier.opening_balance ?? 0);
-        rows = rows.map((r: any) => {
-          running += Number(r.debit ?? 0) - Number(r.credit ?? 0);
-          return { ...r, running_balance: running };
+      /* نأخذ سطر المورد فقط (debit > 0 أو credit > 0)، نتجاهل سطر المقابل */
+      const seenEntries = new Set<string>();
+      rows = lines
+        .filter((l: any) => {
+          if (!entryMap.has(l.journal_entry_id)) return false;
+          /* إذا شفنا هذا القيد من قبل، تجاهل السطر المكرر */
+          if (seenEntries.has(l.journal_entry_id)) return false;
+          seenEntries.add(l.journal_entry_id);
+          return true;
+        })
+        .map((l: any) => {
+          const e: any = entryMap.get(l.journal_entry_id);
+          return {
+            entry_id:         l.journal_entry_id,
+            entry_number:     e?.entry_number,
+            entry_date:       e?.entry_date,
+            hijri_date:       e?.hijri_date,
+            description:      e?.description || l.description,
+            reference_number: e?.supplier_invoice_number || e?.reference_number,
+            entry_type:       e?.entry_type,
+            status:           e?.status,
+            source_type:      e?.source_type,
+            source_id:        e?.source_id,
+            created_at:       e?.created_at,
+            supplier_id:      l.supplier_id,
+            debit:            Number(l.debit  ?? 0),
+            credit:           Number(l.credit ?? 0),
+            line_description: l.description,
+            quantity:         l.quantity,
+            unit_price:       l.unit_price,
+            item_type:        l.item_type,
+          };
+        })
+        .sort((a: any, b: any) => {
+          const da = a.entry_date ?? "";
+          const db = b.entry_date ?? "";
+          return da < db ? -1 : da > db ? 1 : 0;
         });
-      }
+
+      /* حساب running_balance */
+      let running = Number(supplier.opening_balance ?? 0);
+      rows = rows.map((r: any) => {
+        running += r.debit - r.credit;
+        return { ...r, running_balance: running };
+      });
     }
 
     /* 3. تحويل إلى تنسيق الصفحة */
     const opening = Number(supplier.opening_balance ?? 0);
 
     const transactions = rows.map((r: any) => ({
-      id:              r.id ?? (r.entry_id + "_" + r.supplier_id),
+      id:              r.entry_id,
       entryId:         r.entry_id,
       entryNumber:     r.entry_number,
       entryDate:       r.entry_date,
@@ -175,9 +173,9 @@ export async function GET(
 ══════════════════════════════════════════════════════ */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const supplierId = params.id;
+  const { id: supplierId } = await params;
 
   try {
     const body = await req.json();
@@ -308,7 +306,7 @@ export async function POST(
 ══════════════════════════════════════════════════════ */
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  _ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const { entryId, voidReason } = await req.json();

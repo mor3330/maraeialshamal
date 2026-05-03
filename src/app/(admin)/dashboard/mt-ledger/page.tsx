@@ -92,10 +92,7 @@ export default function MtLedgerPage() {
           s.name.includes("محمد طه") || s.name.toLowerCase().includes("mohammed taha")
         );
         if (mt) setSupplierId(mt.id);
-        else {
-          // إذا لم يوجد، خذ أول مورد أو أظهر رسالة
-          if (list.length > 0) setSupplierId(list[0].id);
-        }
+        // إذا لم يوجد محمد طه → لا تأخذ مورداً عشوائياً، اعرض رسالة
       } finally { setResolving(false); }
     }
     resolve();
@@ -188,7 +185,8 @@ export default function MtLedgerPage() {
             position: fixed !important; top: 0 !important; left: 0 !important;
             width: 100% !important; background: white !important; z-index: 99999 !important; }
           .print-only * { visibility: visible !important; }
-          @page { size: A4 portrait; margin: 12mm 10mm; }
+          @page { size: A4 portrait; margin: 0; }
+          .print-only { padding: 10mm !important; }
         }
         .print-only { display: none; }
       `}</style>
@@ -215,7 +213,11 @@ export default function MtLedgerPage() {
               className="rounded-2xl bg-[#1a2420] border border-[#2a3830] hover:border-amber-500/30 px-5 py-2.5 text-sm font-bold text-[#6a7870] hover:text-amber-400">
               مراجعة المشتريات
             </button>
-            <button onClick={() => window.print()}
+            <button onClick={() => {
+              const prev = document.title;
+              document.title = " ";
+              setTimeout(() => { window.print(); setTimeout(() => { document.title = prev; }, 500); }, 50);
+            }}
               className="rounded-2xl bg-[#1a2420] border border-[#2a3830] hover:border-[#3fa66a]/40 px-5 py-2.5 text-sm font-bold text-[#6a7870] hover:text-[#3fa66a] flex items-center gap-2">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -375,7 +377,7 @@ export default function MtLedgerPage() {
                     const ti = entryTypeLabels[t.entryType] ?? entryTypeLabels.standard;
                     const bal = t.runningBalance;
                     return (
-                      <tr key={t.id}
+                      <tr key={t.entryId ?? t.id ?? i}
                         className={`border-b border-[#2a3830]/40 hover:bg-[#1a2420]/60 transition-colors ${i%2===0 ? "" : "bg-[#0a0c0b]"}`}>
                         <td className="px-4 py-3.5">
                           <div className="text-white text-xs font-medium">{fmtDate(t.entryDate)}</div>
@@ -486,10 +488,10 @@ export default function MtLedgerPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <h1 style={{ fontSize: "20px", fontWeight: "900", margin: 0, color: "#1a6b3a" }}>
-                كشف حساب مورد
+                كشف حساب
               </h1>
               <p style={{ fontSize: "13px", fontWeight: "bold", margin: "4px 0 0", color: "#000" }}>
-                شركة الشمال للمواشي
+                مراعي الشمال
               </p>
             </div>
             <div style={{ textAlign: "left" }}>
@@ -668,7 +670,7 @@ export default function MtLedgerPage() {
           marginTop: "30px", borderTop: "1px solid #ddd", paddingTop: "12px",
           display: "flex", justifyContent: "space-between", fontSize: "9px", color: "#888",
         }}>
-          <span>شركة الشمال للمواشي — نظام إدارة الموردين</span>
+          <span>مراعي الشمال</span>
           <span>هذا الكشف مُولَّد إلكترونياً ولا يحتاج إلى ختم أو توقيع يدوي</span>
           <span>طُبع بتاريخ: {new Date().toLocaleDateString("ar-SA")}</span>
         </div>

@@ -101,8 +101,9 @@ ON CONFLICT (id) DO UPDATE
       allowed_mime_types = ARRAY['image/jpeg','image/png','image/webp','application/pdf','image/jpg'];
 
 -- ─── Storage RLS ───
-DROP POLICY IF EXISTS storage_supplier_docs_read  ON storage.objects;
-DROP POLICY IF EXISTS storage_supplier_docs_write ON storage.objects;
+DROP POLICY IF EXISTS storage_supplier_docs_read   ON storage.objects;
+DROP POLICY IF EXISTS storage_supplier_docs_write  ON storage.objects;
+DROP POLICY IF EXISTS storage_supplier_docs_delete ON storage.objects;
 
 CREATE POLICY storage_supplier_docs_read  ON storage.objects FOR SELECT USING (bucket_id = 'supplier-documents');
 CREATE POLICY storage_supplier_docs_write ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'supplier-documents');
