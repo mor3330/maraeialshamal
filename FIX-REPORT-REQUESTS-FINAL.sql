@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS report_requests (
 
 -- ── 2. إضافة أعمدة ناقصة إن وُجدت ──────────────────
 ALTER TABLE report_requests
+  ADD COLUMN IF NOT EXISTS requested_by  TEXT,
   ADD COLUMN IF NOT EXISTS requested_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS created_at    TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
