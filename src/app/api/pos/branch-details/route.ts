@@ -64,26 +64,34 @@ export async function GET(request: NextRequest) {
   const fromUTC = `${fromDate}T00:00:00+03:00`;
   const toUTC   = `${toDate}T23:59:59+03:00`;
 
-  // ─── جلب الفواتير ───
+  // ─── جلب الفواتير (بدون حد — حتى 5000 فاتورة لتغطية أي شهر) ───
+  // ملاحظة مهمة: Supabase الافتراضي يُرجع 1000 صف فقط، لذلك نُحدد range صريح
   const { data: rawSales } = await (supabase as any)
     .from("sales")
     .select("id, total, paid_amount, payment_method, mixed_cash_amount, mixed_network_amount, document_type, invoice_number, sale_date, cashier_name")
     .eq("branch_id", branch.id)
     .gte("sale_date", fromUTC)
     .lte("sale_date", toUTC)
-    .order("sale_date", { ascending: false });
+    .order("sale_date", { ascending: false })
+    .range(0, 4999);  // ✅ يُرجع حتى 5000 فاتورة (يكفي لأي شهر)
 
   const sales = (rawSales || []) as any[];
 
-  // ─── جلب أصناف الفواتير مع mapping ───
+  // ─── جلب أصناف الفواتير بشكل مجزأ (batch) ───
+  // مشكلة: .in() مع 1000+ ID يُرجع فقط 1000 صنف → نُقسّم إلى مجموعات
   const saleIds = sales.map((s: any) => s.id);
   let saleItems: any[] = [];
   if (saleIds.length > 0) {
-    const { data: rawItems } = await (supabase as any)
-      .from("sale_items")
-      .select("id, sale_id, product_name, quantity, unit_price, total")
-      .in("sale_id", saleIds);
-    saleItems = rawItems || [];
+    const BATCH_SIZE = 200; // حجم كل مجموعة
+    for (let i = 0; i < saleIds.length; i += BATCH_SIZE) {
+      const batchIds = saleIds.slice(i, i + BATCH_SIZE);
+      const { data: batchItems } = await (supabase as any)
+        .from("sale_items")
+        .select("id, sale_id, product_name, quantity, unit_price, total")
+        .in("sale_id", batchIds)
+        .range(0, 4999);
+      saleItems = saleItems.concat(batchItems || []);
+    }
   }
 
   // ─── جلب product_mappings ───
