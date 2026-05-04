@@ -386,7 +386,31 @@ export default function DashboardPage() {
 
         {/* Branch Status */}
         <section className="rounded-[28px] border border-line bg-card p-6 mb-6">
-          <h2 className="text-2xl font-black mb-6">حالة الفروع</h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-black">حالة الفروع</h2>
+            {/* إجمالي مشتريات اليوم */}
+            {(() => {
+              const totalPurchasesDay = dayPurchases.hashi.price + dayPurchases.sheep.price + dayPurchases.beef.price;
+              return totalPurchasesDay > 0 ? (
+                <Link
+                  href="/dashboard/purchases-review"
+                  className="flex items-center gap-2 rounded-2xl border border-amber/30 bg-amber/10 px-4 py-2 text-sm text-amber hover:bg-amber/20 transition-all"
+                >
+                  <span>🛒</span>
+                  <span>مشتريات اليوم: <strong className="ltr-num">{fmt(totalPurchasesDay)}</strong> ر</span>
+                  <span className="text-xs opacity-60">←</span>
+                </Link>
+              ) : (
+                <Link
+                  href="/dashboard/purchases-review"
+                  className="flex items-center gap-2 rounded-2xl border border-line bg-card-hi px-4 py-2 text-xs text-muted hover:text-cream hover:border-amber/30 transition-all"
+                >
+                  <span>🛒</span>
+                  <span>قسم المشتريات</span>
+                </Link>
+              );
+            })()}
+          </div>
           
           {branches.length === 0 ? (
             <div className="rounded-2xl border border-line bg-card-hi p-5 text-muted text-sm text-center">
@@ -396,14 +420,15 @@ export default function DashboardPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {branches.map(branch => {
                 const report = todaysReportsByBranch.get(branch.id);
-                // الكاش الفعلي (بدون خصم المصروفات)
                 const actualCash = report ? toN(report.cash_actual) : 0;
                 const hasCash = report && Math.abs(actualCash) >= 0.01;
+                // إجمالي مشتريات اليوم لعرضها في كل كارد فرع
+                const totalPurchasesDay = dayPurchases.hashi.price + dayPurchases.sheep.price + dayPurchases.beef.price;
+                const hasPurchases = totalPurchasesDay > 0;
                 return (
-                  <button
+                  <div
                     key={branch.id}
-                    onClick={() => router.push(`/branch/${branch.slug}`)}
-                    className={`text-right rounded-2xl border p-4 transition-all hover:scale-[1.02] ${
+                    className={`text-right rounded-2xl border p-4 transition-all ${
                       !branch.is_active
                         ? "border-line/30 bg-card-hi/50 opacity-50"
                         : report
@@ -411,26 +436,48 @@ export default function DashboardPage() {
                           : "border-line bg-card-hi"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-3">
-                      <div>
-                        <p className="font-bold text-cream text-lg">{branch.name}</p>
-                        <p className="text-xs text-muted mt-1">
-                          {!branch.is_active ? "غير نشط 🔴" : report ? "مرفوع ✓" : "بانتظار ⏳"}
-                        </p>
+                    {/* اسم الفرع + حالته → رابط لصفحة الفرع */}
+                    <button
+                      onClick={() => router.push(`/branch/${branch.slug}`)}
+                      className="w-full text-right mb-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-cream text-lg">{branch.name}</p>
+                          <p className="text-xs text-muted mt-1">
+                            {!branch.is_active ? "غير نشط 🔴" : report ? "مرفوع ✓" : "بانتظار ⏳"}
+                          </p>
+                        </div>
                       </div>
-                    </div>
+                    </button>
                     
                     {report && (
                       <div className="space-y-2">
                         <div className="grid grid-cols-2 gap-2">
-                          <div className="rounded-xl bg-bg/60 border border-line p-3">
+                          <button
+                            onClick={() => router.push(`/dashboard/reports`)}
+                            className="rounded-xl bg-bg/60 border border-line p-3 text-right hover:border-green/30 transition-colors"
+                          >
                             <p className="text-muted text-xs">المبيعات</p>
                             <p className="font-bold text-lg ltr-num" dir="ltr">{fmt(toN(report.total_sales))} <span className="text-xs">ر</span></p>
-                          </div>
-                          <div className="rounded-xl bg-bg/60 border border-line p-3">
-                            <p className="text-muted text-xs">المشتريات</p>
-                            <p className="text-muted text-sm">قريباً</p>
-                          </div>
+                          </button>
+                          {/* المشتريات → رابط لقسم المشتريات */}
+                          <Link
+                            href="/dashboard/purchases-review"
+                            onClick={e => e.stopPropagation()}
+                            className={`rounded-xl p-3 text-right transition-colors block ${
+                              hasPurchases
+                                ? "bg-amber/10 border border-amber/30 hover:bg-amber/20"
+                                : "bg-bg/60 border border-line hover:border-amber/30"
+                            }`}
+                          >
+                            <p className={`text-xs ${hasPurchases ? "text-amber/80" : "text-muted"}`}>المشتريات</p>
+                            {hasPurchases ? (
+                              <p className="font-bold text-amber ltr-num text-base" dir="ltr">{fmt(totalPurchasesDay)} <span className="text-xs">ر</span></p>
+                            ) : (
+                              <p className="text-muted text-xs mt-1">لا توجد →</p>
+                            )}
+                          </Link>
                         </div>
                         {hasCash && (
                           <div className="rounded-xl bg-green/20 border border-green/30 p-3">
@@ -440,7 +487,7 @@ export default function DashboardPage() {
                         )}
                       </div>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
