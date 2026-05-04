@@ -95,14 +95,19 @@ export default function PosSalesPage() {
   const load = useCallback(async (p: Period) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/pos/dashboard?period=${p}`);
+      const res = await fetch(`/api/pos/dashboard?period=${p}&t=${Date.now()}`, { cache: "no-store" });
       const json = await res.json();
       setData(json);
     } catch {}
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(period); }, [period, load]);
+  useEffect(() => {
+    load(period);
+    // تحديث تلقائي كل 60 ثانية
+    const interval = setInterval(() => load(period), 60_000);
+    return () => clearInterval(interval);
+  }, [period, load]);
 
   // ─── طلب مزامنة فورية ───
   async function requestSync(branchId: string, branchName: string) {
