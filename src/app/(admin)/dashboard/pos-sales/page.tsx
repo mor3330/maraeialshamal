@@ -104,9 +104,34 @@ export default function PosSalesPage() {
 
   useEffect(() => {
     load(period);
-    // تحديث تلقائي كل 60 ثانية
-    const interval = setInterval(() => load(period), 60_000);
-    return () => clearInterval(interval);
+
+    // تحديث تلقائي كل 5 دقائق — فقط عندما التاب مرئي
+    // هذا يمنع الضغط على السيرفر عندما لا يكون الأدمن يشاهد الصفحة
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    function startInterval() {
+      if (interval) clearInterval(interval);
+      interval = setInterval(() => {
+        if (document.visibilityState === "visible") {
+          load(period);
+        }
+      }, 5 * 60_000); // كل 5 دقائق
+    }
+
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        load(period); // تحديث فوري عند العودة للتاب
+        startInterval();
+      }
+    }
+
+    startInterval();
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      if (interval) clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [period, load]);
 
   // ─── طلب مزامنة فورية ───
