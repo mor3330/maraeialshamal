@@ -4,18 +4,36 @@ import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-// الأصناف التي تُحتسب ضمن فئة "الغنم"
-const SHEEP_TYPES = ["سواكني", "حري", "نعيمي", "خروف", "غنم", "روماني", "رفيدي", "تيس"];
+// الفئات المتعرّف عليها (مرتبطة بعمود meat_category في item_types)
+type Category = "hashi" | "sheep" | "beef" | "offal" | "other";
 
-// تصنيف الصنف إلى فئة رئيسية
-function getMainCategory(itemTypeName: string): "hashi" | "sheep" | "beef" | "other" {
+// Fallback: تصنيف بناءً على الاسم إذا لم يكن meat_category محدداً
+const SHEEP_TYPES = ["سواكني", "حري", "نعيمي", "خروف", "غنم", "روماني", "رفيدي", "تيس"];
+function getMainCategoryByName(itemTypeName: string): Category {
   const n = (itemTypeName || "").toLowerCase();
   if (n.includes("حاشي") || n.includes("hashi")) return "hashi";
   if (n.includes("عجل") || n.includes("beef")) return "beef";
-  // الغنم: أي من الأصناف المدرجة
+  if (n.includes("مخلف") || n.includes("كبد") || n.includes("كراع")
+    || n.includes("راس") || n.includes("رأس") || n.includes("معاصب")
+    || n.includes("offal")) return "offal";
   if (SHEEP_TYPES.some(s => (itemTypeName || "").includes(s))) return "sheep";
   if (n.includes("غنم") || n.includes("sheep")) return "sheep";
   return "other";
+}
+
+function getCategory(item_type: { name?: string; meat_category?: string } | null): Category {
+  if (!item_type) return "other";
+  // استخدام العمود من DB أولاً
+  if (item_type.meat_category) {
+    const c = item_type.meat_category as Category;
+    if (["hashi","sheep","beef","offal"].includes(c)) return c;
+  }
+  // Fallback على الاسم
+  return getMainCategoryByName(item_type.name || "");
+}
+
+function emptyCat() {
+  return { count: 0, weight: 0, total: 0 };
 }
 
 export async function GET(request: Request) {
@@ -30,7 +48,6 @@ export async function GET(request: Request) {
 
   const [year, mon] = month.split("-");
   const startDate = `${year}-${mon}-01`;
-  // آخر يوم في الشهر
   const lastDay = new Date(parseInt(year), parseInt(mon), 0).getDate();
   const endDate = `${year}-${mon}-${String(lastDay).padStart(2, "0")}`;
 
@@ -46,7 +63,7 @@ export async function GET(request: Request) {
       branch_id,
       branches:branch_id(id, name),
       suppliers:supplier_id(id, name),
-      item_types:item_type_id(id, name, name_en)
+      item_types:item_type_id(id, name, name_en, meat_category)
     `)
     .gte("purchase_date", startDate)
     .lte("purchase_date", endDate)
@@ -65,11 +82,12 @@ export async function GET(request: Request) {
   const purchases = data ?? [];
 
   // ── ملخص حسب الفئة الرئيسية ──
-  const summary = {
-    hashi: { count: 0, weight: 0, total: 0 },
-    sheep: { count: 0, weight: 0, total: 0 },
-    beef:  { count: 0, weight: 0, total: 0 },
-    other: { count: 0, weight: 0, total: 0 },
+  const summary: Record<Category, { count: number; weight: number; total: number }> = {
+    hashi: emptyCat(),
+    sheep: emptyCat(),
+    beef:  emptyCat(),
+    offal: emptyCat(),
+    other: emptyCat(),
   };
 
   // ── ملخص حسب الفرع ──
@@ -78,16 +96,20 @@ export async function GET(request: Request) {
     hashi: { count: number; weight: number; total: number };
     sheep: { count: number; weight: number; total: number };
     beef:  { count: number; weight: number; total: number };
+    offal: { count: number; weight: number; total: number };
     other: { count: number; weight: number; total: number };
     grandTotal: number;
   }> = {};
 
-  // ── ملخص حسب صنف الغنم التفصيلي ──
-  const sheepByType: Record<string, { name: string; count: number; weight: number; total: number }> = {};
+  // ── تفصيل أصناف كل فئة ──
+  const byType: Record<Category, Record<string, { name: string; count: number; weight: number; total: number }>> = {
+    hashi: {}, sheep: {}, beef: {}, offal: {}, other: {},
+  };
 
   for (const p of purchases) {
-    const itemName = p.item_types?.name || "غير محدد";
-    const cat = getMainCategory(itemName);
+    const itemType  = p.item_types as { name?: string; meat_category?: string } | null;
+    const itemName  = itemType?.name || "غير محدد";
+    const cat       = getCategory(itemType);
     const qty = Number(p.quantity) || 0;
     const wgt = Number(p.weight)   || 0;
     const amt = Number(p.price)    || 0;
@@ -97,26 +119,22 @@ export async function GET(request: Request) {
     summary[cat].weight += wgt;
     summary[cat].total  += amt;
 
-    // تفصيل أصناف الغنم
-    if (cat === "sheep") {
-      if (!sheepByType[itemName]) {
-        sheepByType[itemName] = { name: itemName, count: 0, weight: 0, total: 0 };
-      }
-      sheepByType[itemName].count  += qty;
-      sheepByType[itemName].weight += wgt;
-      sheepByType[itemName].total  += amt;
+    // تفصيل حسب الصنف داخل الفئة
+    if (!byType[cat][itemName]) {
+      byType[cat][itemName] = { name: itemName, count: 0, weight: 0, total: 0 };
     }
+    byType[cat][itemName].count  += qty;
+    byType[cat][itemName].weight += wgt;
+    byType[cat][itemName].total  += amt;
 
     // ملخص الفروع
-    const bId = p.branch_id || "unknown";
-    const bName = p.branches?.name || "غير محدد";
+    const bId   = p.branch_id || "unknown";
+    const bName = (p.branches as any)?.name || "غير محدد";
     if (!byBranch[bId]) {
       byBranch[bId] = {
         branchId: bId, branchName: bName,
-        hashi: { count: 0, weight: 0, total: 0 },
-        sheep: { count: 0, weight: 0, total: 0 },
-        beef:  { count: 0, weight: 0, total: 0 },
-        other: { count: 0, weight: 0, total: 0 },
+        hashi: emptyCat(), sheep: emptyCat(),
+        beef:  emptyCat(), offal: emptyCat(), other: emptyCat(),
         grandTotal: 0,
       };
     }
@@ -126,16 +144,26 @@ export async function GET(request: Request) {
     byBranch[bId].grandTotal  += amt;
   }
 
-  const grandTotal = summary.hashi.total + summary.sheep.total + summary.beef.total + summary.other.total;
+  const grandTotal =
+    summary.hashi.total + summary.sheep.total +
+    summary.beef.total  + summary.offal.total + summary.other.total;
+
+  // للتوافق مع الكود القديم نرجع sheepByType أيضاً
+  const sheepByType = Object.values(byType.sheep).sort((a, b) => b.total - a.total);
 
   return NextResponse.json({
-    month,
-    startDate,
-    endDate,
+    month, startDate, endDate,
     summary,
-    sheepByType: Object.values(sheepByType).sort((a, b) => b.total - a.total),
+    sheepByType,              // للتوافق مع الكود القديم
+    byType: {                 // الجديد: تفصيل كل فئة
+      hashi: Object.values(byType.hashi).sort((a, b) => b.total - a.total),
+      sheep: Object.values(byType.sheep).sort((a, b) => b.total - a.total),
+      beef:  Object.values(byType.beef).sort((a,  b) => b.total - a.total),
+      offal: Object.values(byType.offal).sort((a, b) => b.total - a.total),
+      other: Object.values(byType.other).sort((a, b) => b.total - a.total),
+    },
     byBranch: Object.values(byBranch).sort((a, b) => b.grandTotal - a.grandTotal),
-    purchases: branchId ? purchases : [], // المشتريات التفصيلية فقط عند طلب فرع محدد
+    purchases: branchId ? purchases : [],
     grandTotal,
     totalCount: purchases.length,
   });

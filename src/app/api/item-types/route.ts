@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   
   try {
     const body = await request.json();
-    const { name, display_order, pricing_method } = body;
+    const { name, display_order, pricing_method, meat_category } = body;
     
     if (!name) {
       return NextResponse.json({ error: "اسم الصنف مطلوب" }, { status: 400 });
@@ -46,7 +46,8 @@ export async function POST(request: Request) {
       .insert([{ 
         name, 
         display_order: targetOrder,
-        pricing_method: pricing_method || 'quantity'
+        pricing_method: pricing_method || 'quantity',
+        meat_category: meat_category || null,
       }])
       .select()
       .single();
@@ -67,7 +68,7 @@ export async function PUT(request: Request) {
   
   try {
     const body = await request.json();
-    const { id, name, display_order, pricing_method } = body;
+    const { id, name, display_order, pricing_method, meat_category } = body;
     
     if (!id || !name) {
       return NextResponse.json({ error: "البيانات ناقصة" }, { status: 400 });
@@ -95,7 +96,8 @@ export async function PUT(request: Request) {
       .update({ 
         name, 
         display_order: newOrder,
-        pricing_method: pricing_method || 'quantity'
+        pricing_method: pricing_method || 'quantity',
+        meat_category: meat_category || null,
       })
       .eq("id", id)
       .select()

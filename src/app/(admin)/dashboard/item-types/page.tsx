@@ -3,11 +3,32 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
+type MeatCategory = "hashi" | "sheep" | "beef" | "offal" | "";
+
 interface ItemType {
   id: string;
   name: string;
   display_order: number;
   pricing_method?: string;
+  meat_category?: MeatCategory;
+}
+
+const MEAT_CATEGORIES: { value: MeatCategory; label: string; color: string }[] = [
+  { value: "",      label: "غير محدد",  color: "bg-card-hi text-muted border-line"           },
+  { value: "hashi", label: "حاشي",      color: "bg-amber/10 text-amber border-amber/30"      },
+  { value: "sheep", label: "غنم",       color: "bg-green/10 text-green border-green/30"      },
+  { value: "beef",  label: "عجل",       color: "bg-sky-400/10 text-sky-400 border-sky-400/30"},
+  { value: "offal", label: "مخلفات",    color: "bg-purple-400/10 text-purple-400 border-purple-400/30" },
+];
+
+function categoryBadge(cat?: MeatCategory) {
+  const found = MEAT_CATEGORIES.find(c => c.value === (cat || ""));
+  if (!found || !found.value) return null;
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full border ${found.color}`}>
+      {found.label}
+    </span>
+  );
 }
 
 export default function ItemTypesPage() {
@@ -21,7 +42,8 @@ export default function ItemTypesPage() {
   const [formData, setFormData] = useState({
     name: "",
     display_order: 0,
-    pricing_method: "quantity"
+    pricing_method: "quantity",
+    meat_category: "" as MeatCategory,
   });
 
   useEffect(() => {
@@ -41,7 +63,7 @@ export default function ItemTypesPage() {
 
   function handleAdd() {
     setEditingId(null);
-    setFormData({ name: "", display_order: itemTypes.length + 1, pricing_method: "quantity" });
+    setFormData({ name: "", display_order: itemTypes.length + 1, pricing_method: "quantity", meat_category: "" });
     setShowModal(true);
   }
 
@@ -50,7 +72,8 @@ export default function ItemTypesPage() {
     setFormData({
       name: item.name,
       display_order: item.display_order,
-      pricing_method: item.pricing_method || "quantity"
+      pricing_method: item.pricing_method || "quantity",
+      meat_category: (item.meat_category || "") as MeatCategory,
     });
     setShowModal(true);
   }
@@ -117,6 +140,19 @@ export default function ItemTypesPage() {
           </div>
         </div>
 
+        {/* بطاقات التصنيفات */}
+        <div className="grid grid-cols-4 gap-3 mb-6">
+          {MEAT_CATEGORIES.filter(c => c.value).map(cat => {
+            const count = itemTypes.filter(it => it.meat_category === cat.value).length;
+            return (
+              <div key={cat.value} className={`rounded-2xl border px-4 py-3 text-center ${cat.color}`}>
+                <p className="text-lg font-black">{count}</p>
+                <p className="text-xs font-bold">{cat.label}</p>
+              </div>
+            );
+          })}
+        </div>
+
         <div className="rounded-3xl border border-line bg-card overflow-hidden">
           {loading ? (
             <div className="text-center py-12">
@@ -136,6 +172,8 @@ export default function ItemTypesPage() {
               <thead className="bg-card-hi border-b border-line">
                 <tr>
                   <th className="p-4 text-right text-sm font-bold">الاسم</th>
+                  <th className="p-4 text-right text-sm font-bold">الفئة</th>
+                  <th className="p-4 text-right text-sm font-bold hidden md:table-cell">طريقة الحساب</th>
                   <th className="p-4 text-right text-sm font-bold">الترتيب</th>
                   <th className="p-4 text-center text-sm font-bold">إجراءات</th>
                 </tr>
@@ -144,6 +182,16 @@ export default function ItemTypesPage() {
                 {itemTypes.map(it => (
                   <tr key={it.id} className="border-b border-line/50 hover:bg-card-hi/50 transition-colors">
                     <td className="p-4 font-bold">{it.name}</td>
+                    <td className="p-4">
+                      {categoryBadge(it.meat_category) || (
+                        <span className="text-xs text-red px-2 py-0.5 rounded-full border border-red/20 bg-red/5">
+                          ⚠ بدون تصنيف
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-4 text-muted text-sm hidden md:table-cell">
+                      {it.pricing_method === "weight" ? "بالوزن (كجم)" : "بالكمية"}
+                    </td>
                     <td className="p-4 text-muted">{it.display_order}</td>
                     <td className="p-4">
                       <div className="flex items-center justify-center gap-2">
@@ -181,6 +229,32 @@ export default function ItemTypesPage() {
                   className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50"
                 />
               </div>
+
+              {/* ── تصنيف الفئة ── */}
+              <div>
+                <label className="text-sm text-muted block mb-2">تصنيف الفئة *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {MEAT_CATEGORIES.map(cat => (
+                    <button
+                      key={cat.value}
+                      type="button"
+                      onClick={() => setFormData({...formData, meat_category: cat.value})}
+                      className={`rounded-xl px-4 py-2.5 text-sm font-bold border transition-all ${
+                        formData.meat_category === cat.value
+                          ? cat.value
+                            ? cat.color + " ring-2 ring-current ring-offset-1 ring-offset-card"
+                            : "bg-card-hi text-muted border-line ring-2 ring-current"
+                          : "bg-bg border-line text-muted hover:border-current hover:text-cream"
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+                {!formData.meat_category && (
+                  <p className="text-xs text-amber mt-2">⚠ يفضل تحديد الفئة لتظهر في تقارير المشتريات بشكل صحيح</p>
+                )}
+              </div>
               
               <div>
                 <label className="text-sm text-muted block mb-2">طريقة حساب السعر *</label>
@@ -190,7 +264,6 @@ export default function ItemTypesPage() {
                   <option value="quantity">بالكمية (عدد الرؤوس/الذبائح)</option>
                   <option value="weight">بالوزن (كجم)</option>
                 </select>
-                <p className="text-xs text-muted mt-2">يحدد كيفية حساب السعر في المشتريات</p>
               </div>
               
               <div>
