@@ -550,7 +550,7 @@ interface PurchaseRow {
   quantity: number; weight: number; price: number;
   branches?:    { id: string; name: string } | null;
   suppliers?:   { id: string; name: string } | null;
-  item_types?:  { id: string; name: string; name_en: string } | null;
+  item_types?:  { id: string; name: string; name_en: string; meat_category?: string } | null;
 }
 
 function PurchasesReportPrint({ data }: { data: PurchaseRow[] }) {
@@ -575,26 +575,30 @@ function PurchasesReportPrint({ data }: { data: PurchaseRow[] }) {
     { key: "sheep", label: "غنم",  nameAr: ["غنم", "خروف", "ضأن"],  nameEn: ["sheep", "lamb"]           },
     { key: "beef",  label: "عجل",  nameAr: ["عجل", "تلو"],          nameEn: ["beef", "veal", "calf"]    },
   ];
-  const offalKeywordsAr = ["كبدة","كراعين","مخلفات","رقبة","كوارع","نخاع","طحال","قلب","كرش","مصران","ركس","ذنب"];
-  const matchAnimal = (r: PurchaseRow, nameArList: string[], nameEnList: string[]) => {
+  // ── تحديد الفئة: meat_category من DB أولاً ثم fallback بالاسم ──
+  const SHEEP_NAMES_PRINT = ["سواكني","حري","نعيمي","خروف","غنم","روماني","رفيدي","تيس","ضأن"];
+  const offalKeywordsAr   = ["كبدة","كراعين","مخلفات","رقبة","كوارع","نخاع","طحال","قلب","كرش","مصران","ركس","ذنب"];
+  function getPrintCat(r: PurchaseRow): "hashi" | "sheep" | "beef" | "offal" | null {
+    const cat = r.item_types?.meat_category;
+    if (cat === "hashi" || cat === "sheep" || cat === "beef" || cat === "offal") return cat as any;
     const nameAr = (r.item_types?.name ?? "").toLowerCase();
     const nameEn = (r.item_types?.name_en ?? "").toLowerCase();
-    return nameArList.some(n => nameAr.includes(n)) || nameEnList.some(n => nameEn.includes(n));
-  };
-  const isOffal = (r: PurchaseRow) => {
-    const nameAr = (r.item_types?.name ?? "").toLowerCase();
-    return offalKeywordsAr.some(k => nameAr.includes(k));
-  };
+    if (nameAr.includes("حاشي") || nameEn === "hashi") return "hashi";
+    if (nameAr.includes("عجل") || nameEn.includes("beef") || nameEn.includes("veal")) return "beef";
+    if (offalKeywordsAr.some(k => nameAr.includes(k)) || nameEn === "offal") return "offal";
+    if (SHEEP_NAMES_PRINT.some(n => nameAr.includes(n)) || nameEn.includes("sheep") || nameEn.includes("lamb")) return "sheep";
+    return null;
+  }
   const byAnimal: Record<string, { qty: number; weight: number; price: number }> = {};
   animalTypes.forEach(at => {
-    const rows = data.filter(r => matchAnimal(r, at.nameAr, at.nameEn));
+    const rows = data.filter(r => getPrintCat(r) === at.key);
     byAnimal[at.key] = {
       qty:    rows.reduce((a, r) => a + toN(r.quantity), 0),
       weight: rows.reduce((a, r) => a + toN(r.weight),   0),
       price:  rows.reduce((a, r) => a + toN(r.price),    0),
     };
   });
-  const offalRows = data.filter(r => isOffal(r));
+  const offalRows = data.filter(r => getPrintCat(r) === "offal");
   const offalTotalPrice = offalRows.reduce((a, r) => a + toN(r.price), 0);
 
   /* تجميع حسب الفرع */
