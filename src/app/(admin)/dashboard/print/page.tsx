@@ -845,7 +845,7 @@ interface ExtSale {
   sale_date: string; notes?: string;
   buyers?:    { name: string; phone?: string } | null;
   suppliers?: { name: string } | null;
-  item_types?:{ name: string } | null;
+  item_types?:{ name: string; name_en?: string; meat_category?: string } | null;
 }
 
 function ExternalSalesReportPrint({ data, range }: { data: ExtSale[]; range: { from: string; to: string } }) {
@@ -861,6 +861,36 @@ function ExternalSalesReportPrint({ data, range }: { data: ExtSale[]; range: { f
   const totalWeight = data.reduce((a, s) => a + toN(s.weight),   0);
   const totalPrice  = data.reduce((a, s) => a + toN(s.price),    0);
 
+  // ── تصنيف حسب meat_category (نفس منطق المشتريات) ──
+  const EXT_SHEEP_NAMES = ["سواكني","حري","نعيمي","خروف","غنم","روماني","رفيدي","تيس","ضأن"];
+  const EXT_OFFAL_NAMES = ["كبدة","كراعين","مخلفات","رقبة","كوارع","نخاع","طحال","قلب","كرش","مصران","ركس","ذنب"];
+  function getExtCat(s: ExtSale): "hashi" | "sheep" | "beef" | "offal" | null {
+    const cat = s.item_types?.meat_category;
+    if (cat === "hashi" || cat === "sheep" || cat === "beef" || cat === "offal") return cat as any;
+    const nameAr = (s.item_types?.name ?? "").toLowerCase();
+    const nameEn = (s.item_types?.name_en ?? "").toLowerCase();
+    if (nameAr.includes("حاشي") || nameEn === "hashi") return "hashi";
+    if (nameAr.includes("عجل") || nameEn.includes("beef") || nameEn.includes("veal")) return "beef";
+    if (EXT_OFFAL_NAMES.some(k => nameAr.includes(k)) || nameEn === "offal") return "offal";
+    if (EXT_SHEEP_NAMES.some(n => nameAr.includes(n)) || nameEn.includes("sheep") || nameEn.includes("lamb")) return "sheep";
+    return null;
+  }
+  const EXT_ANIMAL_TYPES = [
+    { key: "hashi" as const, label: "حاشي" },
+    { key: "sheep" as const, label: "غنم"  },
+    { key: "beef"  as const, label: "عجل"  },
+  ];
+  const byExtCat: Record<string, { qty: number; weight: number; price: number }> = {};
+  EXT_ANIMAL_TYPES.forEach(at => {
+    const rows = data.filter(s => getExtCat(s) === at.key);
+    byExtCat[at.key] = {
+      qty:    rows.reduce((a, s) => a + toN(s.quantity), 0),
+      weight: rows.reduce((a, s) => a + toN(s.weight),   0),
+      price:  rows.reduce((a, s) => a + toN(s.price),    0),
+    };
+  });
+  const offalExtPrice = data.filter(s => getExtCat(s) === "offal").reduce((a, s) => a + toN(s.price), 0);
+
   if (data.length === 0) {
     return (
       <div className="text-gray-900" dir="rtl">
@@ -874,23 +904,78 @@ function ExternalSalesReportPrint({ data, range }: { data: ExtSale[]; range: { f
   return (
     <div className="text-gray-900 font-[Readex_Pro,Tajawal,sans-serif]" dir="rtl">
 
-      {/* ── ملخص KPIs ── */}
+      {/* ── ملخص KPIs مفصّل ── */}
       <div className="kpi-grid grid grid-cols-3 gap-4 mb-6">
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-center">
-          <p className="text-blue-600 text-xs font-medium mb-1">إجمالي العدد</p>
-          <p className="text-3xl font-black text-blue-700 ltr-num" dir="ltr">{fmt(totalQty)}</p>
-          <p className="text-blue-500 text-xs mt-1">رأس</p>
+
+        {/* العدد — تفصيل حسب الصنف */}
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <p className="text-blue-700 text-sm font-black mb-3 text-center border-b border-blue-200 pb-2">إجمالي العدد</p>
+          <div className="space-y-2">
+            {EXT_ANIMAL_TYPES.map(at => byExtCat[at.key].qty > 0 && (
+              <div key={at.key} className="flex justify-between items-baseline">
+                <span className="text-blue-600 text-sm font-semibold">{at.label}</span>
+                <span className="text-blue-800 font-black text-lg ltr-num" dir="ltr">
+                  {fmt(byExtCat[at.key].qty)} <span className="text-xs font-normal text-blue-500">رأس</span>
+                </span>
+              </div>
+            ))}
+            {EXT_ANIMAL_TYPES.every(at => byExtCat[at.key].qty === 0) && (
+              <p className="text-blue-800 font-black text-3xl text-center ltr-num" dir="ltr">{fmt(totalQty)}</p>
+            )}
+          </div>
+          <div className="border-t border-blue-200 mt-2 pt-2 text-center">
+            <span className="text-blue-700 font-black text-base ltr-num">{fmt(totalQty)}</span>
+            <span className="text-blue-500 text-xs mr-1">إجمالي</span>
+          </div>
         </div>
-        <div className="rounded-2xl border border-green-200 bg-green-50 p-5 text-center">
-          <p className="text-green-600 text-xs font-medium mb-1">إجمالي الوزن</p>
-          <p className="text-3xl font-black text-green-700 ltr-num" dir="ltr">{fmt(totalWeight, 2)}</p>
-          <p className="text-green-500 text-xs mt-1">كجم</p>
+
+        {/* الوزن — تفصيل حسب الصنف */}
+        <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
+          <p className="text-green-700 text-sm font-black mb-3 text-center border-b border-green-200 pb-2">إجمالي الوزن</p>
+          <div className="space-y-2">
+            {EXT_ANIMAL_TYPES.map(at => byExtCat[at.key].weight > 0 && (
+              <div key={at.key} className="flex justify-between items-baseline">
+                <span className="text-green-600 text-sm font-semibold">{at.label}</span>
+                <span className="text-green-800 font-black text-lg ltr-num" dir="ltr">
+                  {fmt(byExtCat[at.key].weight, 2)} <span className="text-xs font-normal text-green-500">كجم</span>
+                </span>
+              </div>
+            ))}
+            {EXT_ANIMAL_TYPES.every(at => byExtCat[at.key].weight === 0) && (
+              <p className="text-green-800 font-black text-3xl text-center ltr-num" dir="ltr">{fmt(totalWeight, 2)}</p>
+            )}
+          </div>
+          <div className="border-t border-green-200 mt-2 pt-2 text-center">
+            <span className="text-green-700 font-black text-base ltr-num">{fmt(totalWeight, 2)}</span>
+            <span className="text-green-500 text-xs mr-1">كجم إجمالي</span>
+          </div>
         </div>
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-center">
-          <p className="text-amber-600 text-xs font-medium mb-1">إجمالي القيمة</p>
-          <p className="text-3xl font-black text-amber-700 ltr-num" dir="ltr">{fmt(totalPrice, 2)}</p>
-          <p className="text-amber-500 text-xs mt-1">ريال</p>
+
+        {/* إجمالي القيمة مع تفصيل */}
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-amber-600 text-xs font-medium mb-1 text-center">إجمالي القيمة</p>
+          <p className="text-3xl font-black text-amber-700 ltr-num text-center" dir="ltr">{fmt(totalPrice, 2)}</p>
+          <p className="text-amber-500 text-xs text-center mt-1">ريال</p>
+          <div className="border-t border-amber-200 mt-3 pt-2 space-y-1.5">
+            {EXT_ANIMAL_TYPES.map(at => byExtCat[at.key].price > 0 && (
+              <div key={at.key} className="flex justify-between items-baseline">
+                <span className="text-amber-600 text-xs font-semibold">{at.label}</span>
+                <span className="text-amber-800 font-bold text-sm ltr-num" dir="ltr">
+                  {fmt(byExtCat[at.key].price, 2)} <span className="text-xs font-normal">ر.س</span>
+                </span>
+              </div>
+            ))}
+            {offalExtPrice > 0 && (
+              <div className="flex justify-between items-baseline">
+                <span className="text-amber-600 text-xs font-semibold">مخلفات</span>
+                <span className="text-amber-800 font-bold text-sm ltr-num" dir="ltr">
+                  {fmt(offalExtPrice, 2)} <span className="text-xs font-normal">ر.س</span>
+                </span>
+              </div>
+            )}
+          </div>
         </div>
+
       </div>
 
       {/* ── جداول حسب المشترٍ ── */}

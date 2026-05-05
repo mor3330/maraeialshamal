@@ -22,7 +22,7 @@ export async function GET(request: Request) {
       *,
       buyers:buyer_id(id, name, phone),
       suppliers:supplier_id(id, name),
-      item_types:item_type_id(id, name, name_en)
+      item_types:item_type_id(id, name, name_en, meat_category)
     `)
     .order("sale_date",  { ascending: false })
     .order("created_at", { ascending: false });
