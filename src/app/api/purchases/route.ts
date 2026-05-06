@@ -15,6 +15,8 @@ export async function GET(request: Request) {
   const dateTo      = searchParams.get("dateTo");
   const supplierId  = searchParams.get("supplierId");
   const itemTypeId  = searchParams.get("itemTypeId");
+  const limitParam  = searchParams.get("limit");
+  const limitVal    = limitParam ? Math.min(parseInt(limitParam) || 2000, 10000) : 2000;
 
   let query = supabase
     .from("purchases")
@@ -34,7 +36,7 @@ export async function GET(request: Request) {
   if (supplierId) query = query.eq("supplier_id", supplierId);
   if (itemTypeId) query = query.eq("item_type_id", itemTypeId);
 
-  const { data, error } = await query.limit(2000);
+  const { data, error } = await query.limit(limitVal);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

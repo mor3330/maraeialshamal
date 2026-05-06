@@ -459,7 +459,7 @@ function SalesReportPrint({ data }: { data: SalesData }) {
         </div>
         <div className="rounded-2xl border border-green-200 bg-green-50 p-5 text-center">
           <p className="text-green-600 text-xs font-medium mb-1">صافي الكاش</p>
-          <p className="text-3xl font-black text-green-700" dir="ltr">{fmt(toN(summary.total) - toN(summary.expenses))}</p>
+          <p className="text-3xl font-black text-green-700" dir="ltr">{fmt(toN(summary.cash) - toN(summary.expenses))}</p>
           <p className="text-green-500 text-xs mt-1">ريال</p>
         </div>
       </div>
@@ -1190,7 +1190,6 @@ function PrintWrapper({ reportType, range, children, loading }: {
             </p>
           </div>
           <div className="text-left">
-            <p className="text-[#8a9690] text-xs mt-2">{now}</p>
           </div>
         </div>
       </div>
@@ -1275,10 +1274,17 @@ export default function PrintReportsPage() {
   const loadPurchasesData = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(""); setPurchasesData(null);
     try {
-      const res = await fetch(`/api/purchases?dateFrom=${from}&dateTo=${to}`);
+      // نفس طريقة سجل المشتريات: جلب كل البيانات بدون فلتر تاريخ، ثم فلترة client-side
+      const res = await fetch(`/api/purchases?limit=9999`, { cache: "no-store" });
       if (!res.ok) { setError("تعذر تحميل المشتريات"); return; }
       const json = await res.json();
-      setPurchasesData(json.purchases ?? []);
+      const all: PurchaseRow[] = json.purchases ?? [];
+      // فلترة حسب الفترة المختارة (client-side)
+      const filtered = all.filter(p => {
+        const d = (p.purchase_date ?? "").substring(0, 10);
+        return d >= from && d <= to;
+      });
+      setPurchasesData(filtered);
     } catch {
       setError("تعذر الاتصال بالخادم");
     } finally {
@@ -1435,14 +1441,17 @@ export default function PrintReportsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                {(selectedType === "profit" || selectedType === "sales" || selectedType === "external-sales") && (
+                {(selectedType === "profit" || selectedType === "sales" || selectedType === "external-sales" || selectedType === "purchases" || selectedType === "shortages") && (
                   <button onClick={() => {
                     if (selectedType === "profit")         loadProfitData(range.from, range.to);
                     if (selectedType === "sales")          loadSalesData(range.from, range.to);
                     if (selectedType === "external-sales") loadExternalSalesData(range.from, range.to);
+                    if (selectedType === "purchases")      loadPurchasesData(range.from, range.to);
+                    if (selectedType === "shortages")      loadShortagesData(range.from, range.to);
                   }}
-                    className="rounded-xl border border-line bg-card-hi px-4 py-2 text-sm text-muted hover:text-cream transition-all">
-                    ↻ تحديث
+                    disabled={loading}
+                    className="rounded-xl border border-line bg-card-hi px-4 py-2 text-sm text-muted hover:text-cream transition-all disabled:opacity-50">
+                    {loading ? "⏳ جاري التحميل..." : "↻ تحديث"}
                   </button>
                 )}
                 {error && <p className="text-red text-xs">{error}</p>}
