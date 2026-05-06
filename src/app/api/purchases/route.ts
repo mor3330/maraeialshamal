@@ -4,45 +4,67 @@ import { createServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-// GET: جلب المشتريات
+// GET: جلب المشتريات — يدعم pagination لجلب كل السجلات
 export async function GET(request: Request) {
   const supabase = createServiceClient();
   const { searchParams } = new URL(request.url);
 
-  const branchId    = searchParams.get("branchId");
-  const date        = searchParams.get("date");
-  const dateFrom    = searchParams.get("dateFrom");
-  const dateTo      = searchParams.get("dateTo");
-  const supplierId  = searchParams.get("supplierId");
-  const itemTypeId  = searchParams.get("itemTypeId");
-  const limitParam  = searchParams.get("limit");
-  const limitVal    = limitParam ? Math.min(parseInt(limitParam) || 2000, 10000) : 2000;
+  const branchId   = searchParams.get("branchId");
+  const date       = searchParams.get("date");
+  const dateFrom   = searchParams.get("dateFrom");
+  const dateTo     = searchParams.get("dateTo");
+  const supplierId = searchParams.get("supplierId");
+  const itemTypeId = searchParams.get("itemTypeId");
+  // دعم all=true لجلب كل السجلات بدون حد (pagination تلقائي)
+  const fetchAll   = searchParams.get("all") === "true";
 
-  let query = supabase
-    .from("purchases")
-    .select(`
-      *,
-      branches:branch_id(id, name),
-      suppliers:supplier_id(id, name),
-      item_types:item_type_id(id, name, name_en, meat_category)
-    `)
-    .order("purchase_date", { ascending: true })
-    .order("created_at", { ascending: true });
+  function buildQuery() {
+    let q = supabase
+      .from("purchases")
+      .select(`
+        *,
+        branches:branch_id(id, name),
+        suppliers:supplier_id(id, name),
+        item_types:item_type_id(id, name, name_en, meat_category)
+      `)
+      .order("purchase_date", { ascending: true })
+      .order("created_at", { ascending: true });
 
-  if (branchId)  query = query.eq("branch_id", branchId);
-  if (date && date !== 'undefined') query = query.eq("purchase_date", date);
-  if (dateFrom)  query = query.gte("purchase_date", dateFrom);
-  if (dateTo)    query = query.lte("purchase_date", dateTo);
-  if (supplierId) query = query.eq("supplier_id", supplierId);
-  if (itemTypeId) query = query.eq("item_type_id", itemTypeId);
+    if (branchId)  q = q.eq("branch_id", branchId);
+    if (date && date !== "undefined") q = q.eq("purchase_date", date);
+    if (dateFrom)  q = q.gte("purchase_date", dateFrom);
+    if (dateTo)    q = q.lte("purchase_date", dateTo);
+    if (supplierId) q = q.eq("supplier_id", supplierId);
+    if (itemTypeId) q = q.eq("item_type_id", itemTypeId);
 
-  const { data, error } = await query.limit(limitVal);
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return q;
   }
 
-  return NextResponse.json({ purchases: data ?? [] });
+  try {
+    if (fetchAll) {
+      // جلب كل السجلات عبر pagination (1000 سجل في كل مرة)
+      const PAGE = 1000;
+      let all: any[] = [];
+      let page = 0;
+      while (true) {
+        const { data, error } = await buildQuery().range(page * PAGE, page * PAGE + PAGE - 1);
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        all = all.concat(data ?? []);
+        if (!data || data.length < PAGE) break;
+        page++;
+      }
+      return NextResponse.json({ purchases: all });
+    } else {
+      // الوضع الاعتيادي مع حد قابل للتعديل
+      const limitParam = searchParams.get("limit");
+      const limitVal   = limitParam ? Math.min(parseInt(limitParam) || 2000, 100000) : 2000;
+      const { data, error } = await buildQuery().range(0, limitVal - 1);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ purchases: data ?? [] });
+    }
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message ?? "خطأ في الخادم" }, { status: 500 });
+  }
 }
 
 // POST: إضافة مشترى
@@ -65,7 +87,7 @@ export async function POST(request: Request) {
       .insert([{
         branch_id,
         supplier_id: supplier_id || null,
-        purchase_date: purchase_date || new Date().toISOString().split('T')[0],
+        purchase_date: purchase_date || new Date().toISOString().split("T")[0],
         item_type_id,
         quantity: parseFloat(quantity),
         weight: parseFloat(weight),

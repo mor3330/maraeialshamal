@@ -1274,17 +1274,13 @@ export default function PrintReportsPage() {
   const loadPurchasesData = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(""); setPurchasesData(null);
     try {
-      // نفس طريقة سجل المشتريات: جلب كل البيانات بدون فلتر تاريخ، ثم فلترة client-side
-      const res = await fetch(`/api/purchases?limit=9999`, { cache: "no-store" });
+      // all=true → pagination تلقائي لجلب كل السجلات بدون حد
+      // dateFrom/dateTo → فلترة في DB مباشرة لتقليل الحجم
+      const url = `/api/purchases?all=true&dateFrom=${from}&dateTo=${to}`;
+      const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) { setError("تعذر تحميل المشتريات"); return; }
       const json = await res.json();
-      const all: PurchaseRow[] = json.purchases ?? [];
-      // فلترة حسب الفترة المختارة (client-side)
-      const filtered = all.filter(p => {
-        const d = (p.purchase_date ?? "").substring(0, 10);
-        return d >= from && d <= to;
-      });
-      setPurchasesData(filtered);
+      setPurchasesData(json.purchases ?? []);
     } catch {
       setError("تعذر الاتصال بالخادم");
     } finally {
