@@ -1227,6 +1227,9 @@ export default function PrintReportsPage() {
   const [purchasesData, setPurchasesData] = useState<PurchaseRow[] | null>(null);
   const [shortagesData, setShortagesData] = useState<ShortagesBranch[] | null>(null);
   const [error, setError] = useState("");
+  // ── فلتر الفروع للمشتريات ──
+  const [purchasesBranches, setPurchasesBranches] = useState<{id: string; name: string}[]>([]);
+  const [excludedBranchIds, setExcludedBranchIds] = useState<Set<string>>(new Set());
   const printRef = useRef<HTMLDivElement>(null);
 
   const loadProfitData = useCallback(async (from: string, to: string) => {
@@ -1273,14 +1276,18 @@ export default function PrintReportsPage() {
 
   const loadPurchasesData = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(""); setPurchasesData(null);
+    setExcludedBranchIds(new Set()); // إعادة تعيين الفلتر عند التحديث
     try {
-      // all=true → pagination تلقائي لجلب كل السجلات بدون حد
-      // dateFrom/dateTo → فلترة في DB مباشرة لتقليل الحجم
       const url = `/api/purchases?all=true&dateFrom=${from}&dateTo=${to}`;
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) { setError("تعذر تحميل المشتريات"); return; }
       const json = await res.json();
-      setPurchasesData(json.purchases ?? []);
+      const purchases: PurchaseRow[] = json.purchases ?? [];
+      setPurchasesData(purchases);
+      // استخراج قائمة الفروع الفريدة تلقائياً من البيانات
+      const branchMap: Record<string, string> = {};
+      purchases.forEach(p => { if (p.branches?.id) branchMap[p.branches.id] = p.branches.name; });
+      setPurchasesBranches(Object.entries(branchMap).map(([id, name]) => ({ id, name })).sort((a,b) => a.name.localeCompare(b.name, "ar")));
     } catch {
       setError("تعذر الاتصال بالخادم");
     } finally {
@@ -1458,6 +1465,53 @@ export default function PrintReportsPage() {
               </div>
             </div>
 
+            {/* ── فلتر الفروع لتقرير المشتريات ── */}
+            {selectedType === "purchases" && purchasesBranches.length > 0 && !loading && (
+              <div className="rounded-[24px] border border-amber/20 bg-amber/5 p-4 mb-5 no-print">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-amber text-sm font-bold">🔽 استثناء فروع من التقرير</p>
+                  {excludedBranchIds.size > 0 && (
+                    <button onClick={() => setExcludedBranchIds(new Set())}
+                      className="rounded-xl px-3 py-1 text-xs border border-green/30 bg-green/10 text-green hover:bg-green/20 transition-all">
+                      إظهار الكل ✓
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {purchasesBranches.map(b => {
+                    const excluded = excludedBranchIds.has(b.id);
+                    return (
+                      <button key={b.id} onClick={() => {
+                        setExcludedBranchIds(prev => {
+                          const next = new Set(prev);
+                          if (next.has(b.id)) next.delete(b.id); else next.add(b.id);
+                          return next;
+                        });
+                      }}
+                        className={`rounded-xl px-4 py-2 text-sm transition-all border font-medium ${
+                          excluded
+                            ? "bg-red-900/30 border-red-500/40 text-red-400 line-through opacity-60"
+                            : "bg-amber/10 border-amber/30 text-amber hover:bg-amber/20"
+                        }`}>
+                        {excluded ? "✗ " : "✓ "}{b.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                {excludedBranchIds.size > 0 && (
+                  <p className="text-muted text-xs mt-3">
+                    <span className="text-red-400 font-bold">{excludedBranchIds.size}</span> فرع مستثنى —
+                    يظهر في التقرير <span className="text-green font-bold">{purchasesBranches.length - excludedBranchIds.size}</span> فرع فقط
+                    {(() => {
+                      const filtered = purchasesData?.filter(p => !excludedBranchIds.has(p.branches?.id ?? "")) ?? [];
+                      const total = filtered.reduce((a, p) => a + (p.price ?? 0), 0);
+                      return <span className="mr-2 text-amber font-bold">· الإجمالي: {total.toLocaleString("ar-SA-u-nu-latn")} ر.س</span>;
+                    })()}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Print Content */}
             <div ref={printRef} className="print-scale-wrap">
               <PrintWrapper reportType={selectedType} range={range} loading={loading}>
@@ -1474,7 +1528,11 @@ export default function PrintReportsPage() {
                   <div className="text-center py-12 text-gray-400">لا توجد بيانات في هذه الفترة</div>
                 )}
                 {selectedType === "purchases" && purchasesData && (
-                  <PurchasesReportPrint data={purchasesData} />
+                  <PurchasesReportPrint data={
+                    excludedBranchIds.size > 0
+                      ? purchasesData.filter(p => !excludedBranchIds.has(p.branches?.id ?? ""))
+                      : purchasesData
+                  } />
                 )}
                 {selectedType === "purchases" && !purchasesData && !loading && (
                   <div className="text-center py-12 text-gray-400">لا توجد مشتريات في هذه الفترة</div>
