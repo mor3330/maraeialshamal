@@ -59,6 +59,7 @@ export default function PurchasesPage() {
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkDateFrom, setBulkDateFrom] = useState("");
   const [bulkDateTo, setBulkDateTo] = useState("");
+  const [bulkBranchId, setBulkBranchId] = useState("");
   const [bulkSupplierId, setBulkSupplierId] = useState("");
   const [bulkItemTypeId, setBulkItemTypeId] = useState("");
   const [bulkPricePerUnit, setBulkPricePerUnit] = useState("");
@@ -235,6 +236,7 @@ export default function PurchasesPage() {
     try {
       const params = new URLSearchParams({ dateFrom: bulkDateFrom, dateTo: bulkDateTo, item_type_id: bulkItemTypeId });
       if (bulkSupplierId) params.set("supplier_id", bulkSupplierId);
+      if (bulkBranchId) params.set("branch_id", bulkBranchId);
       const res = await fetch(`/api/purchases/bulk-update-price?${params}`);
       const json = await res.json();
       setBulkPreview({ count: json.count ?? 0, rows: json.rows ?? [] });
@@ -260,6 +262,7 @@ export default function PurchasesPage() {
         body: JSON.stringify({
           dateFrom: bulkDateFrom,
           dateTo: bulkDateTo,
+          branch_id: bulkBranchId || null,
           supplier_id: bulkSupplierId || null,
           item_type_id: bulkItemTypeId,
           price_per_unit: parseFloat(bulkPricePerUnit),
@@ -280,7 +283,7 @@ export default function PurchasesPage() {
 
   function resetBulkModal() {
     setShowBulkModal(false);
-    setBulkDateFrom(""); setBulkDateTo(""); setBulkSupplierId("");
+    setBulkDateFrom(""); setBulkDateTo(""); setBulkBranchId(""); setBulkSupplierId("");
     setBulkItemTypeId(""); setBulkPricePerUnit(""); setBulkPricingMethod("quantity");
     setBulkPreview(null); setBulkResult(null);
   }
@@ -541,9 +544,9 @@ export default function PurchasesPage() {
               /* ── نتيجة التحديث ── */
               <div className="text-center py-8">
                 <div className="w-16 h-16 rounded-full bg-green/20 flex items-center justify-center mx-auto mb-4">
-                  <span className="text-3xl">✓</span>
+                  <span className="text-3xl text-green font-black">✓</span>
                 </div>
-                <p className="text-cream text-2xl font-black mb-2">تم التحديث بنجاح!</p>
+                <p className="text-cream text-2xl font-black mb-2">تم التحديث بنجاح</p>
                 <p className="text-muted">تم تحديث <span className="text-green font-bold text-xl">{bulkResult.updated}</span> سجل</p>
                 <button onClick={resetBulkModal}
                   className="mt-6 rounded-2xl bg-green hover:bg-green-dark px-8 py-3 font-bold text-white">
@@ -564,6 +567,16 @@ export default function PurchasesPage() {
                     <input type="date" value={bulkDateTo} onChange={e => { setBulkDateTo(e.target.value); setBulkPreview(null); }}
                       className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50" />
                   </div>
+                </div>
+
+                {/* الفرع */}
+                <div>
+                  <label className="text-sm text-muted block mb-1">الفرع <span className="text-muted/60">(اتركه فارغاً لكل الفروع)</span></label>
+                  <select value={bulkBranchId} onChange={e => { setBulkBranchId(e.target.value); setBulkPreview(null); }}
+                    className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50">
+                    <option value="">كل الفروع</option>
+                    {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
                 </div>
 
                 {/* المورد */}
@@ -615,7 +628,7 @@ export default function PurchasesPage() {
                   onClick={handleBulkPreview}
                   disabled={!bulkDateFrom || !bulkDateTo || !bulkItemTypeId || bulkPreviewing}
                   className="w-full rounded-2xl border border-orange-500/50 bg-orange-500/10 hover:bg-orange-500/20 disabled:opacity-40 py-3 font-bold text-orange-400 transition-all">
-                  {bulkPreviewing ? "⏳ جاري المعاينة..." : "🔍 معاينة السجلات المتأثرة"}
+                  {bulkPreviewing ? "جاري المعاينة..." : "معاينة السجلات المتأثرة"}
                 </button>
 
                 {/* نتيجة المعاينة */}
@@ -644,9 +657,9 @@ export default function PurchasesPage() {
                             <div key={r.id} className="flex items-center justify-between text-xs bg-bg/50 rounded-lg px-3 py-1.5">
                               <span className="text-muted">{r.purchase_date}</span>
                               <span className="text-cream">{(r.branches as any)?.name ?? "—"}</span>
-                              <span className="text-muted">{(r.suppliers as any)?.name ?? "كل الموردين"}</span>
+                              <span className="text-muted">{(r.suppliers as any)?.name ?? "—"}</span>
                               <span className="text-amber-400 font-bold">
-                                {r.price} → {
+                                {r.price} ← {
                                   bulkPricePerUnit && Number(bulkPricePerUnit) > 0
                                     ? (bulkPricingMethod === "weight"
                                       ? (Number(bulkPricePerUnit) * (Number(r.weight) || 0)).toFixed(2)
@@ -675,7 +688,7 @@ export default function PurchasesPage() {
                     onClick={handleBulkSubmit}
                     disabled={bulkSaving || !bulkPreview || bulkPreview.count === 0 || !bulkPricePerUnit || Number(bulkPricePerUnit) <= 0}
                     className="flex-[2] rounded-2xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 px-6 py-3 font-bold text-white transition-all">
-                    {bulkSaving ? "⏳ جاري التحديث..." : `✏️ تحديث ${bulkPreview?.count ?? 0} سجل`}
+                    {bulkSaving ? "جاري التحديث..." : `تحديث ${bulkPreview?.count ?? 0} سجل`}
                   </button>
                 </div>
               </div>

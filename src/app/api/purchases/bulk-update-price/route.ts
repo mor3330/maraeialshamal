@@ -20,7 +20,7 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { dateFrom, dateTo, supplier_id, item_type_id, price_per_unit, pricing_method } = body;
+    const { dateFrom, dateTo, branch_id, supplier_id, item_type_id, price_per_unit, pricing_method } = body;
 
     if (!dateFrom || !dateTo || !item_type_id || !price_per_unit || !pricing_method) {
       return NextResponse.json({ error: "بيانات ناقصة" }, { status: 400 });
@@ -39,9 +39,8 @@ export async function POST(req: NextRequest) {
       .gte("purchase_date", dateFrom)
       .lte("purchase_date", dateTo);
 
-    if (supplier_id) {
-      query = query.eq("supplier_id", supplier_id);
-    }
+    if (branch_id)   query = query.eq("branch_id",   branch_id);
+    if (supplier_id) query = query.eq("supplier_id", supplier_id);
 
     const { data: rows, error: fetchErr } = await query;
     if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
@@ -87,6 +86,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const dateFrom      = searchParams.get("dateFrom");
     const dateTo        = searchParams.get("dateTo");
+    const branch_id     = searchParams.get("branch_id");
     const supplier_id   = searchParams.get("supplier_id");
     const item_type_id  = searchParams.get("item_type_id");
 
@@ -101,6 +101,7 @@ export async function GET(req: NextRequest) {
       .gte("purchase_date", dateFrom)
       .lte("purchase_date", dateTo);
 
+    if (branch_id)   query = query.eq("branch_id",   branch_id);
     if (supplier_id) query = query.eq("supplier_id", supplier_id);
 
     const { count, data, error } = await query;
