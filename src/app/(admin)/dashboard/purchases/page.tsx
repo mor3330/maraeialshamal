@@ -55,6 +55,19 @@ export default function PurchasesPage() {
   const [items, setItems] = useState<PurchaseItem[]>([emptyItem()]);
   const [notes, setNotes] = useState("");
 
+  // ── تعديل أسعار جماعية ──
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkDateFrom, setBulkDateFrom] = useState("");
+  const [bulkDateTo, setBulkDateTo] = useState("");
+  const [bulkSupplierId, setBulkSupplierId] = useState("");
+  const [bulkItemTypeId, setBulkItemTypeId] = useState("");
+  const [bulkPricePerUnit, setBulkPricePerUnit] = useState("");
+  const [bulkPricingMethod, setBulkPricingMethod] = useState<"quantity" | "weight">("quantity");
+  const [bulkPreview, setBulkPreview] = useState<{ count: number; rows: any[] } | null>(null);
+  const [bulkPreviewing, setBulkPreviewing] = useState(false);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ updated: number } | null>(null);
+
   useEffect(() => {
     const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Riyadh" }));
     const yesterday = new Date(now);
@@ -214,6 +227,64 @@ export default function PurchasesPage() {
     }
   }
 
+  // معاينة السجلات المتأثرة
+  async function handleBulkPreview() {
+    if (!bulkDateFrom || !bulkDateTo || !bulkItemTypeId) return;
+    setBulkPreviewing(true);
+    setBulkPreview(null);
+    try {
+      const params = new URLSearchParams({ dateFrom: bulkDateFrom, dateTo: bulkDateTo, item_type_id: bulkItemTypeId });
+      if (bulkSupplierId) params.set("supplier_id", bulkSupplierId);
+      const res = await fetch(`/api/purchases/bulk-update-price?${params}`);
+      const json = await res.json();
+      setBulkPreview({ count: json.count ?? 0, rows: json.rows ?? [] });
+    } finally {
+      setBulkPreviewing(false);
+    }
+  }
+
+  // تنفيذ التحديث الجماعي
+  async function handleBulkSubmit() {
+    if (!bulkDateFrom || !bulkDateTo || !bulkItemTypeId || !bulkPricePerUnit) {
+      alert("الرجاء تعبئة جميع الحقول المطلوبة"); return;
+    }
+    if (!bulkPreview || bulkPreview.count === 0) {
+      alert("لا توجد سجلات لتحديثها"); return;
+    }
+    if (!confirm(`سيتم تحديث ${bulkPreview.count} سجل. هل أنت متأكد؟`)) return;
+    setBulkSaving(true);
+    try {
+      const res = await fetch("/api/purchases/bulk-update-price", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dateFrom: bulkDateFrom,
+          dateTo: bulkDateTo,
+          supplier_id: bulkSupplierId || null,
+          item_type_id: bulkItemTypeId,
+          price_per_unit: parseFloat(bulkPricePerUnit),
+          pricing_method: bulkPricingMethod,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { alert(json.error || "فشل التحديث"); return; }
+      setBulkResult({ updated: json.updated });
+      setBulkPreview(null);
+      loadData(targetDate);
+    } catch (err: any) {
+      alert(err.message || "حدث خطأ");
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  function resetBulkModal() {
+    setShowBulkModal(false);
+    setBulkDateFrom(""); setBulkDateTo(""); setBulkSupplierId("");
+    setBulkItemTypeId(""); setBulkPricePerUnit(""); setBulkPricingMethod("quantity");
+    setBulkPreview(null); setBulkResult(null);
+  }
+
   async function handleDelete(id: string) {
     if (!confirm("هل أنت متأكد من الحذف؟")) return;
     try {
@@ -266,6 +337,10 @@ export default function PurchasesPage() {
             <button onClick={() => router.push('/dashboard/prices')}
               className="rounded-2xl bg-amber-500 hover:bg-amber-600 px-6 py-3 font-bold text-white transition-all">
               الأسعار
+            </button>
+            <button onClick={() => { setBulkResult(null); setBulkPreview(null); setShowBulkModal(true); }}
+              className="rounded-2xl bg-orange-500 hover:bg-orange-600 px-6 py-3 font-bold text-white transition-all">
+              تعديل أسعار جماعي
             </button>
             <button onClick={() => router.push('/dashboard/item-types')}
               className="rounded-2xl bg-blue-500 hover:bg-blue-600 px-6 py-3 font-bold text-white transition-all">
@@ -446,6 +521,165 @@ export default function PurchasesPage() {
                 {saving ? "جاري الحفظ..." : "حفظ التعديلات"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal تعديل أسعار جماعي ── */}
+      {showBulkModal && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-card border border-line rounded-3xl p-6 w-full max-w-2xl my-8">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-bold">تعديل أسعار جماعي</h2>
+                <p className="text-muted text-sm mt-1">حدد الفترة والمورد والصنف والسعر الجديد</p>
+              </div>
+              <button onClick={resetBulkModal} className="text-muted hover:text-cream text-2xl leading-none">×</button>
+            </div>
+
+            {bulkResult ? (
+              /* ── نتيجة التحديث ── */
+              <div className="text-center py-8">
+                <div className="w-16 h-16 rounded-full bg-green/20 flex items-center justify-center mx-auto mb-4">
+                  <span className="text-3xl">✓</span>
+                </div>
+                <p className="text-cream text-2xl font-black mb-2">تم التحديث بنجاح!</p>
+                <p className="text-muted">تم تحديث <span className="text-green font-bold text-xl">{bulkResult.updated}</span> سجل</p>
+                <button onClick={resetBulkModal}
+                  className="mt-6 rounded-2xl bg-green hover:bg-green-dark px-8 py-3 font-bold text-white">
+                  إغلاق
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {/* الفترة الزمنية */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm text-muted block mb-1">من تاريخ *</label>
+                    <input type="date" value={bulkDateFrom} onChange={e => { setBulkDateFrom(e.target.value); setBulkPreview(null); }}
+                      className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50" />
+                  </div>
+                  <div>
+                    <label className="text-sm text-muted block mb-1">إلى تاريخ *</label>
+                    <input type="date" value={bulkDateTo} onChange={e => { setBulkDateTo(e.target.value); setBulkPreview(null); }}
+                      className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50" />
+                  </div>
+                </div>
+
+                {/* المورد */}
+                <div>
+                  <label className="text-sm text-muted block mb-1">المورد <span className="text-muted/60">(اتركه فارغاً لكل الموردين)</span></label>
+                  <select value={bulkSupplierId} onChange={e => { setBulkSupplierId(e.target.value); setBulkPreview(null); }}
+                    className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50">
+                    <option value="">كل الموردين</option>
+                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+
+                {/* الصنف */}
+                <div>
+                  <label className="text-sm text-muted block mb-1">الصنف *</label>
+                  <select value={bulkItemTypeId} onChange={e => { setBulkItemTypeId(e.target.value); setBulkPreview(null); }}
+                    className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-green/50">
+                    <option value="">اختر الصنف</option>
+                    {itemTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+
+                {/* طريقة التسعير والسعر */}
+                <div>
+                  <label className="text-sm text-muted block mb-2">طريقة التسعير *</label>
+                  <div className="flex gap-3 mb-3">
+                    <button onClick={() => setBulkPricingMethod("quantity")}
+                      className={`flex-1 rounded-xl py-2.5 font-bold text-sm border transition-all ${bulkPricingMethod === "quantity" ? "bg-orange-500 border-orange-500 text-white" : "bg-card-hi border-line text-muted hover:text-cream"}`}>
+                      بالعدد (سعر / رأس)
+                    </button>
+                    <button onClick={() => setBulkPricingMethod("weight")}
+                      className={`flex-1 rounded-xl py-2.5 font-bold text-sm border transition-all ${bulkPricingMethod === "weight" ? "bg-blue-500 border-blue-500 text-white" : "bg-card-hi border-line text-muted hover:text-cream"}`}>
+                      بالكيلو (سعر / كجم)
+                    </button>
+                  </div>
+                  <input type="number" step="0.01" min="0.01" value={bulkPricePerUnit}
+                    onChange={e => setBulkPricePerUnit(e.target.value)}
+                    placeholder={bulkPricingMethod === "weight" ? "السعر لكل كيلوجرام (ر.س)" : "السعر لكل رأس (ر.س)"}
+                    className="w-full rounded-xl bg-bg border border-line px-4 py-3 text-cream focus:outline-none focus:border-orange-500/50 text-lg font-bold" />
+                  {bulkPricePerUnit && Number(bulkPricePerUnit) > 0 && (
+                    <p className="text-orange-400 text-xs mt-1">
+                      كل {bulkPricingMethod === "weight" ? "كيلوجرام" : "رأس"} = {Number(bulkPricePerUnit).toLocaleString("ar-SA-u-nu-latn")} ر.س
+                    </p>
+                  )}
+                </div>
+
+                {/* زر المعاينة */}
+                <button
+                  onClick={handleBulkPreview}
+                  disabled={!bulkDateFrom || !bulkDateTo || !bulkItemTypeId || bulkPreviewing}
+                  className="w-full rounded-2xl border border-orange-500/50 bg-orange-500/10 hover:bg-orange-500/20 disabled:opacity-40 py-3 font-bold text-orange-400 transition-all">
+                  {bulkPreviewing ? "⏳ جاري المعاينة..." : "🔍 معاينة السجلات المتأثرة"}
+                </button>
+
+                {/* نتيجة المعاينة */}
+                {bulkPreview !== null && (
+                  <div className={`rounded-2xl border p-4 ${bulkPreview.count > 0 ? "border-orange-500/30 bg-orange-500/5" : "border-line bg-card-hi"}`}>
+                    {bulkPreview.count === 0 ? (
+                      <p className="text-muted text-center text-sm">لا توجد سجلات تطابق المعايير المحددة</p>
+                    ) : (
+                      <>
+                        <p className="text-orange-400 font-bold mb-3">
+                          سيتم تحديث <span className="text-xl">{bulkPreview.count}</span> سجل
+                          {bulkPricePerUnit && Number(bulkPricePerUnit) > 0 && (
+                            <span className="text-muted font-normal text-sm mr-2">
+                              (الإجمالي المتوقع:{" "}
+                              {bulkPreview.rows.reduce((s, r) => {
+                                const v = bulkPricingMethod === "weight"
+                                  ? Number(bulkPricePerUnit) * (Number(r.weight) || 0)
+                                  : Number(bulkPricePerUnit) * (Number(r.quantity) || 0);
+                                return s + v;
+                              }, 0).toLocaleString("ar-SA-u-nu-latn")} ر.س)
+                            </span>
+                          )}
+                        </p>
+                        <div className="max-h-40 overflow-y-auto space-y-1">
+                          {bulkPreview.rows.slice(0, 20).map((r: any) => (
+                            <div key={r.id} className="flex items-center justify-between text-xs bg-bg/50 rounded-lg px-3 py-1.5">
+                              <span className="text-muted">{r.purchase_date}</span>
+                              <span className="text-cream">{(r.branches as any)?.name ?? "—"}</span>
+                              <span className="text-muted">{(r.suppliers as any)?.name ?? "كل الموردين"}</span>
+                              <span className="text-amber-400 font-bold">
+                                {r.price} → {
+                                  bulkPricePerUnit && Number(bulkPricePerUnit) > 0
+                                    ? (bulkPricingMethod === "weight"
+                                      ? (Number(bulkPricePerUnit) * (Number(r.weight) || 0)).toFixed(2)
+                                      : (Number(bulkPricePerUnit) * (Number(r.quantity) || 0)).toFixed(2))
+                                    : "?"
+                                } ر
+                              </span>
+                            </div>
+                          ))}
+                          {bulkPreview.count > 20 && (
+                            <p className="text-muted text-xs text-center pt-1">و {bulkPreview.count - 20} سجل آخر...</p>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* أزرار التنفيذ */}
+                <div className="flex gap-3 pt-2">
+                  <button onClick={resetBulkModal}
+                    className="flex-1 rounded-2xl bg-card-hi border border-line px-6 py-3 font-bold text-cream hover:bg-bg">
+                    إلغاء
+                  </button>
+                  <button
+                    onClick={handleBulkSubmit}
+                    disabled={bulkSaving || !bulkPreview || bulkPreview.count === 0 || !bulkPricePerUnit || Number(bulkPricePerUnit) <= 0}
+                    className="flex-[2] rounded-2xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 px-6 py-3 font-bold text-white transition-all">
+                    {bulkSaving ? "⏳ جاري التحديث..." : `✏️ تحديث ${bulkPreview?.count ?? 0} سجل`}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
