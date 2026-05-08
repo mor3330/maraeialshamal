@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   if (!from || !to) return NextResponse.json({ error: "from/to required" }, { status: 400 });
 
   try {
-    // ── جلب كل التقارير في الفترة مع أسماء الفروع ──
+    // ── جلب كل التقارير في الفترة مع أسماء الفروع والـ notes ──
     const { data: reports, error: repErr } = await supabase
       .from("daily_reports" as any)
       .select("id, report_date, branch_id, branches(name), notes")
@@ -41,37 +41,58 @@ export async function GET(req: NextRequest) {
     }
 
     // ── للرصيد السابق: جلب تقارير اليوم قبل "from" لكل فرع ──
-    // نحتاج step5 ليوم أمس لأول يوم في الفترة
     const dayBefore = new Date(`${from}T00:00:00Z`);
     dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
     const dayBeforeStr = dayBefore.toISOString().slice(0, 10);
 
     const branchIds = [...new Set((reports as any[]).map(r => r.branch_id))];
+
+    // جلب التقارير السابقة مع notes لاستخراج step5Named منها
     const { data: prevReports } = await supabase
       .from("daily_reports" as any)
-      .select("id, branch_id, report_date")
+      .select("id, branch_id, report_date, notes")
       .in("branch_id", branchIds)
       .gte("report_date", dayBeforeStr)
       .lt("report_date", from);
 
     const prevReportIds = (prevReports ?? []).map((r: any) => r.id);
     let prevStepMap: Record<string, Record<string, unknown>> = {};
+
     if (prevReportIds.length > 0) {
+      // حاول step_data أولاً
       const { data: prevStepRows } = await supabase
         .from("step_data" as any)
         .select("report_id, named_values")
         .in("report_id", prevReportIds)
         .eq("step_number", 5);
+
+      // بناء map من step_data
+      const prevStepDataMap: Record<string, Record<string, unknown>> = {};
       for (const row of (prevStepRows ?? []) as any[]) {
-        // map: branchId → step5 named_values of yesterday
-        const rep = (prevReports ?? []).find((r: any) => r.id === row.report_id);
-        if (rep) prevStepMap[(rep as any).branch_id] = row.named_values ?? {};
+        prevStepDataMap[row.report_id] = row.named_values ?? {};
+      }
+
+      // بناء map: branchId → step5 named_values
+      // إذا لم يوجد في step_data نقرأ من notes.step5Named
+      for (const rep of (prevReports ?? []) as any[]) {
+        const fromStepData = prevStepDataMap[rep.id];
+        if (fromStepData && (n(fromStepData.hashi_remaining) !== 0 || n(fromStepData.sheep_remaining) !== 0 || n(fromStepData.beef_remaining) !== 0)) {
+          // لدينا بيانات من step_data
+          prevStepMap[rep.branch_id] = fromStepData;
+        } else {
+          // fallback: اقرأ من notes.step5Named
+          try {
+            const nd = JSON.parse(rep.notes || "{}");
+            const s5 = nd.step5Named ?? {};
+            if (Object.keys(s5).length > 0) {
+              prevStepMap[rep.branch_id] = s5;
+            }
+          } catch {}
+        }
       }
     }
 
-    // ── لكل تقرير: احسب العجز لكل صنف ──
-    // ترتيب: نبني "رصيد اليوم قبله" من خريطة متراكمة
-    // branchPrevRemaining: branchId → { hashi, sheep, beef }
+    // ── branchPrevRemaining: branchId → { hashi, sheep, beef } ──
     const branchPrevRemaining: Record<string, { hashi: number; sheep: number; beef: number }> = {};
     for (const bId of branchIds) {
       const ps5 = prevStepMap[bId] ?? {};
@@ -94,7 +115,6 @@ export async function GET(req: NextRequest) {
     // لتتبع الرصيد اليومي لكل فرع
     const latestPrev: Record<string, { hashi: number; sheep: number; beef: number }> = { ...branchPrevRemaining };
 
-    // نجمع حسب branchId + date: أحياناً نفس الفرع قد يرفع تقريراً مرتين
     const processed = new Set<string>();
     for (const rep of sortedReports) {
       const key = `${rep.branch_id}__${rep.report_date}`;
@@ -109,7 +129,7 @@ export async function GET(req: NextRequest) {
       const s4    = (steps[4] ?? {}) as Record<string, unknown>;
       const s5    = (steps[5] ?? {}) as Record<string, unknown>;
 
-      // كذلك نحاول قراءة من notes fallback
+      // قراءة من notes كـ fallback
       let notesS1: Record<string, unknown> = {};
       let notesS3: Record<string, unknown> = {};
       let notesS4: Record<string, unknown> = {};
@@ -151,7 +171,7 @@ export async function GET(req: NextRequest) {
       if (!branchMap[bId]) branchMap[bId] = { branchName: bName, entries: [] };
       branchMap[bId].entries.push(entry);
 
-      // تحديث الرصيد للأيام التالية
+      // تحديث الرصيد للأيام التالية من الـ actual (الرصيد الفعلي المُدخل)
       latestPrev[bId] = {
         hashi: entry.hashi.actual,
         sheep: entry.sheep.actual,
