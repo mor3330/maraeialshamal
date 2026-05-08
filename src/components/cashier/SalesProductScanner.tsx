@@ -1,4 +1,4 @@
-"use client";
+"use كمlient";
 
 import { useRef, useState } from "react";
 import type { SalesScanResult, ScannedProduct } from "@/app/api/sales-scanner/route";

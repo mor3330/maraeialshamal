@@ -58,13 +58,16 @@ export default function PurchasesLogPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filterBranch) params.set("branchId", filterBranch);
-      if (filterSupplier) params.set("supplierId", filterSupplier);
-      if (filterItemType) params.set("itemTypeId", filterItemType);
+      // تمرير التواريخ للـ API مع all=true لجلب كامل البيانات بدون حد
+      params.set("dateFrom", fromDate);
+      params.set("dateTo", toDate);
+      params.set("all", "true");
+      if (filterBranch)    params.set("branchId",    filterBranch);
+      if (filterSupplier)  params.set("supplierId",  filterSupplier);
+      if (filterItemType)  params.set("itemTypeId",  filterItemType);
       const res = await fetch(`/api/purchases?${params.toString()}`);
       const data = await res.json();
-      const all: Purchase[] = data.purchases || [];
-      setPurchases(all.filter(p => { const d = p.purchase_date?.substring(0,10) || ""; return d >= fromDate && d <= toDate; }));
+      setPurchases(data.purchases || []);
     } finally { setLoading(false); }
   }
 
