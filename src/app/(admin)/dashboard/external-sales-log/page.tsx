@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 
 interface Sale {
   id: string;
-  branch_id: string;
+  buyer_id: string | null;
   supplier_id: string | null;
   item_type_id: string;
   sale_date: string;
@@ -12,12 +12,12 @@ interface Sale {
   weight: number;
   price: number;
   notes?: string;
-  branches?:   { id: string; name: string };
+  buyers?:     { id: string; name: string; phone?: string };
   suppliers?:  { id: string; name: string };
   item_types?: { id: string; name: string };
 }
 
-interface Branch   { id: string; name: string; }
+interface Buyer    { id: string; name: string; }
 interface Supplier { id: string; name: string; }
 interface ItemType { id: string; name: string; }
 
@@ -34,30 +34,30 @@ function getWeekRange() {
 }
 
 export default function ExternalSalesLogPage() {
-  const [sales,      setSales]      = useState<Sale[]>([]);
-  const [branches,   setBranches]   = useState<Branch[]>([]);
-  const [suppliers,  setSuppliers]  = useState<Supplier[]>([]);
-  const [itemTypes,  setItemTypes]  = useState<ItemType[]>([]);
-  const [loading,    setLoading]    = useState(true);
+  const [sales,         setSales]         = useState<Sale[]>([]);
+  const [buyers,        setBuyers]        = useState<Buyer[]>([]);
+  const [suppliers,     setSuppliers]     = useState<Supplier[]>([]);
+  const [itemTypes,     setItemTypes]     = useState<ItemType[]>([]);
+  const [loading,       setLoading]       = useState(true);
 
   const week = getWeekRange();
   const [fromDate,       setFromDate]       = useState(week.from);
   const [toDate,         setToDate]         = useState(week.to);
-  const [filterBranch,   setFilterBranch]   = useState("");
+  const [filterBuyer,    setFilterBuyer]    = useState("");
   const [filterSupplier, setFilterSupplier] = useState("");
   const [filterItemType, setFilterItemType] = useState("");
 
   useEffect(() => { loadMeta(); }, []);
-  useEffect(() => { loadSales(); }, [fromDate, toDate, filterBranch, filterSupplier, filterItemType]);
+  useEffect(() => { loadSales(); }, [fromDate, toDate, filterBuyer, filterSupplier, filterItemType]);
 
   async function loadMeta() {
     const [bRes, sRes, itRes] = await Promise.all([
-      fetch("/api/admin/branches"),
+      fetch("/api/buyers"),
       fetch("/api/suppliers"),
       fetch("/api/item-types"),
     ]);
     const [bData, sData, itData] = await Promise.all([bRes.json(), sRes.json(), itRes.json()]);
-    setBranches(bData.branches   || []);
+    setBuyers(bData.buyers     || []);
     setSuppliers(sData.suppliers || []);
     setItemTypes(itData.itemTypes || []);
   }
@@ -66,23 +66,22 @@ export default function ExternalSalesLogPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filterBranch)   params.set("branchId",   filterBranch);
-      if (filterSupplier) params.set("supplierId",  filterSupplier);
-      if (filterItemType) params.set("itemTypeId",  filterItemType);
+      // تمرير التواريخ للـ API لتصفية server-side
+      params.set("dateFrom", fromDate);
+      params.set("dateTo",   toDate);
+      if (filterBuyer)    params.set("buyerId",    filterBuyer);
+      if (filterSupplier) params.set("supplierId", filterSupplier);
+      if (filterItemType) params.set("itemTypeId", filterItemType);
       const res  = await fetch(`/api/external-sales?${params.toString()}`);
       const data = await res.json();
-      const all: Sale[] = data.sales || [];
-      setSales(all.filter(s => {
-        const d = s.sale_date?.substring(0, 10) || "";
-        return d >= fromDate && d <= toDate;
-      }));
+      setSales(data.sales || []);
     } finally { setLoading(false); }
   }
 
   function resetFilters() {
     const w = getWeekRange();
     setFromDate(w.from); setToDate(w.to);
-    setFilterBranch(""); setFilterSupplier(""); setFilterItemType("");
+    setFilterBuyer(""); setFilterSupplier(""); setFilterItemType("");
   }
 
   const totalWeight = sales.reduce((s, p) => s + toN(p.weight),   0);
@@ -122,11 +121,11 @@ export default function ExternalSalesLogPage() {
                 className="w-full rounded-xl bg-bg border border-line px-3 py-2 text-cream text-sm focus:outline-none focus:border-green/50" />
             </div>
             <div>
-              <label className="text-xs text-muted block mb-1">الفرع</label>
-              <select value={filterBranch} onChange={e => setFilterBranch(e.target.value)}
+              <label className="text-xs text-muted block mb-1">المشتري</label>
+              <select value={filterBuyer} onChange={e => setFilterBuyer(e.target.value)}
                 className="w-full rounded-xl bg-bg border border-line px-3 py-2 text-cream text-sm focus:outline-none focus:border-green/50">
                 <option value="">الكل</option>
-                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                {buyers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </div>
             <div>
@@ -213,7 +212,7 @@ export default function ExternalSalesLogPage() {
                 <thead className="bg-bg">
                   <tr className="text-muted text-sm border-b border-line">
                     <th className="p-3 text-right">التاريخ</th>
-                    <th className="p-3 text-right">الفرع</th>
+                    <th className="p-3 text-right">المشتري</th>
                     <th className="p-3 text-right">المورد</th>
                     <th className="p-3 text-right">الصنف</th>
                     <th className="p-3 text-right">العدد</th>
@@ -226,7 +225,7 @@ export default function ExternalSalesLogPage() {
                   {sales.map((s, i) => (
                     <tr key={s.id} className={`border-b border-line/50 hover:bg-card-hi transition-colors ${i%2===0?"":"bg-bg/30"}`}>
                       <td className="p-3 text-sm text-muted ltr-num" dir="ltr">{s.sale_date?.substring(0,10)}</td>
-                      <td className="p-3 font-medium">{s.branches?.name  || "-"}</td>
+                      <td className="p-3 font-medium">{s.buyers?.name || "-"}</td>
                       <td className="p-3 text-sm">{s.suppliers?.name || "-"}</td>
                       <td className="p-3">
                         <span className="rounded-lg bg-green/10 text-green px-2 py-0.5 text-xs font-medium">

@@ -34,7 +34,8 @@ export async function GET(request: Request) {
   if (dateFrom)   query = query.gte("sale_date", dateFrom);
   if (dateTo)     query = query.lte("sale_date", dateTo);
 
-  const { data, error } = await query.limit(500);
+  // لا نضع حداً عند استخدام التواريخ (dateFrom/dateTo) لضمان اكتمال البيانات
+  const { data, error } = dateFrom || dateTo ? await query : await query.limit(500);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ sales: data ?? [] });
