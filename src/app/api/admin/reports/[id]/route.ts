@@ -80,7 +80,7 @@ export async function PATCH(
   const supabase = createServiceClient();
   const body = await request.json();
 
-  const { payments: paymentsUpdate, stepDataUpdate, returns_value, discounts_value, network_settlement, ...rest } = body as any;
+  const { payments: paymentsUpdate, paymentAmounts, stepDataUpdate, returns_value, discounts_value, network_settlement, ...rest } = body as any;
 
   // الحقول المسموح تحديثها مباشرة في جدول daily_reports
   const SAFE_DB_FIELDS = ["total_sales", "invoice_count", "status", "notes"];
@@ -120,6 +120,25 @@ export async function PATCH(
   // موازنة الشبكة — تُخزَّن في notes كـ _network_settlement
   if (network_settlement !== undefined) {
     notesObj._network_settlement = Number(network_settlement) || 0;
+  }
+
+  // ── تحديث طرق الدفع في notes.payments (مهم عندما لا تكون في جدول report_payments) ──
+  if (paymentAmounts && typeof paymentAmounts === "object") {
+    const codes = ["cash", "network", "transfer", "deferred"] as const;
+    if (!Array.isArray(notesObj.payments)) notesObj.payments = [];
+    for (const code of codes) {
+      if (paymentAmounts[code] === undefined) continue;
+      const newAmt = Number(paymentAmounts[code]) || 0;
+      // ابحث عن السجل الموجود
+      const idx = notesObj.payments.findIndex(
+        (p: any) => p.methodId === code || p.methodCode === code
+      );
+      if (idx >= 0) {
+        notesObj.payments[idx].amount = newAmt;
+      } else {
+        notesObj.payments.push({ methodId: code, methodCode: code, amount: newAmt });
+      }
+    }
   }
 
   // دمج stepData في notes — نقارن الحقول المُعدَّلة فقط

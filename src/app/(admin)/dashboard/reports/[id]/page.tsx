@@ -217,6 +217,13 @@ export default function ReportDetailPage() {
         invoice_count:   parseInt(ed.invoice_count) || 0,
         returns_value:   pf(ed.returns_value),
         discounts_value: pf(ed.discounts_value),
+        // ── إرسال طرق الدفع دائماً ليتم حفظها في notes.payments ──
+        paymentAmounts: {
+          cash:     pf(ed.cash),
+          network:  pf(ed.network),
+          transfer: pf(ed.transfer),
+          deferred: pf(ed.deferred),
+        },
         stepDataUpdate: {
           step1Named: { hashi_weight: pf(ed.s1_hashi), sheep_weight: pf(ed.s1_sheep), beef_weight: pf(ed.s1_beef) },
           step3Named: { hashi_weight: pf(ed.s3_hashi), sheep_weight: pf(ed.s3_sheep), beef_weight: pf(ed.s3_beef) },
