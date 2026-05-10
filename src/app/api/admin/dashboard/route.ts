@@ -35,7 +35,7 @@ export async function GET() {
       .order("report_date", { ascending: false })
       .order("submitted_at", { ascending: false }),
     supabase.from("purchases")
-      .select("item_type_id, purchase_date, weight, price, quantity")
+      .select("item_type_id, branch_id, purchase_date, weight, price, quantity")
       .gte("purchase_date", twoDaysAgo),
     supabase.from("item_types").select("id, name, name_en, meat_category").eq("is_active", true),
   ]);
@@ -70,20 +70,36 @@ export async function GET() {
     if (cat) itemCatMap[it.id] = cat;
   });
 
-  // ── مشتريات مجمّعة حسب (date × category) ──
-  const purchasesByDate: Record<string, Record<"hashi"|"sheep"|"beef", { weight: number; price: number; quantity: number }>> = {};
+  type CatTotals = { hashi: { weight: number; price: number; quantity: number }; sheep: { weight: number; price: number; quantity: number }; beef: { weight: number; price: number; quantity: number } };
+  const emptyTotals = (): CatTotals => ({
+    hashi: { weight: 0, price: 0, quantity: 0 },
+    sheep: { weight: 0, price: 0, quantity: 0 },
+    beef:  { weight: 0, price: 0, quantity: 0 },
+  });
+
+  // ── مشتريات مجمّعة حسب (date × category) ── الإجمالي اليومي
+  const purchasesByDate: Record<string, CatTotals> = {};
+  // ── مشتريات مجمّعة حسب (date × branchId × category) ── خاصة بكل فرع
+  const purchasesByDateAndBranch: Record<string, Record<string, CatTotals>> = {};
+
   (purchasesRes.data ?? []).forEach((p: any) => {
     const cat = itemCatMap[p.item_type_id];
     if (!cat || cat === "offal") return;
     const d = (p.purchase_date ?? "").substring(0, 10);
-    if (!purchasesByDate[d]) purchasesByDate[d] = {
-      hashi: { weight: 0, price: 0, quantity: 0 },
-      sheep: { weight: 0, price: 0, quantity: 0 },
-      beef:  { weight: 0, price: 0, quantity: 0 },
-    };
+    const bId = p.branch_id ?? "__no_branch__";
+
+    // إجمالي اليوم
+    if (!purchasesByDate[d]) purchasesByDate[d] = emptyTotals();
     purchasesByDate[d][cat].weight   += toN(p.weight);
     purchasesByDate[d][cat].price    += toN(p.price);
     purchasesByDate[d][cat].quantity += toN(p.quantity);
+
+    // مشتريات الفرع
+    if (!purchasesByDateAndBranch[d]) purchasesByDateAndBranch[d] = {};
+    if (!purchasesByDateAndBranch[d][bId]) purchasesByDateAndBranch[d][bId] = emptyTotals();
+    purchasesByDateAndBranch[d][bId][cat].weight   += toN(p.weight);
+    purchasesByDateAndBranch[d][bId][cat].price    += toN(p.price);
+    purchasesByDateAndBranch[d][bId][cat].quantity += toN(p.quantity);
   });
 
   // ── معالجة التقارير: parse notes مرة واحدة فقط ──
@@ -206,7 +222,7 @@ export async function GET() {
   });
 
   return NextResponse.json(
-    { todayISO: today, yesterdayISO: yesterday, twoDaysAgoISO: twoDaysAgo, todayLong, branches: branchesRes.data ?? [], reports: enrichedReports, purchasesByDate },
+    { todayISO: today, yesterdayISO: yesterday, twoDaysAgoISO: twoDaysAgo, todayLong, branches: branchesRes.data ?? [], reports: enrichedReports, purchasesByDate, purchasesByDateAndBranch },
     { headers: { "Cache-Control": "no-store", "Pragma": "no-cache" } }
   );
 }

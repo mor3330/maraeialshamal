@@ -33,10 +33,12 @@ interface Report {
   submitted_at: string; meatData: MeatData | null;
   paymentMethods?: PaymentMethods | null;
 }
+interface CatTotals { hashi: { weight: number; price: number; quantity: number }; sheep: { weight: number; price: number; quantity: number }; beef: { weight: number; price: number; quantity: number } }
 interface DashData {
   todayISO: string; yesterdayISO: string; twoDaysAgoISO: string; todayLong: string;
   branches: Branch[]; reports: Report[];
-  purchasesByDate: Record<string, { hashi: { weight: number; price: number; quantity: number }; sheep: { weight: number; price: number; quantity: number }; beef: { weight: number; price: number; quantity: number } }>;
+  purchasesByDate: Record<string, CatTotals>;
+  purchasesByDateAndBranch: Record<string, Record<string, CatTotals>>;
 }
 
 const toN = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -89,7 +91,7 @@ export default function DashboardPage() {
     );
   }
 
-  const { todayISO, yesterdayISO, twoDaysAgoISO, todayLong, branches = [], reports = [], purchasesByDate = {} } = data ?? {};
+  const { todayISO, yesterdayISO, twoDaysAgoISO, todayLong, branches = [], reports = [], purchasesByDate = {}, purchasesByDateAndBranch = {} } = data ?? {};
   const activeBranches = branches.filter(b => b.is_active);
 
   // الأيام المتاحة للتصفية — آخر 3 أيام مع عدد تقارير كل يوم
@@ -422,8 +424,11 @@ export default function DashboardPage() {
                 const report = todaysReportsByBranch.get(branch.id);
                 const actualCash = report ? toN(report.cash_actual) : 0;
                 const hasCash = report && Math.abs(actualCash) >= 0.01;
-                // إجمالي مشتريات اليوم لعرضها في كل كارد فرع
-                const totalPurchasesDay = dayPurchases.hashi.price + dayPurchases.sheep.price + dayPurchases.beef.price;
+                // مشتريات هذا الفرع تحديداً لليوم المحدد
+                const branchPurchases = purchasesByDateAndBranch[activeDate]?.[branch.id];
+                const totalPurchasesDay = branchPurchases
+                  ? (branchPurchases.hashi.price + branchPurchases.sheep.price + branchPurchases.beef.price)
+                  : 0;
                 const hasPurchases = totalPurchasesDay > 0;
                 return (
                   <div
