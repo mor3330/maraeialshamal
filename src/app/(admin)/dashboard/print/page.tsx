@@ -152,8 +152,36 @@ function PeriodPresets({ onSelect, selected }: { onSelect: (r: { from: string; t
    Print: صافي الربح
 ══════════════════════════════════════════ */
 function ProfitReportPrint({ data, range }: { data: ProfitData; range: { from: string; to: string } }) {
-  const { summary, branches } = data;
+  const { branches } = data;
   const catLabel = { hashi: "حاشي", sheep: "غنم", beef: "عجل", offal: "مخلفات" };
+
+  // إعادة حساب كل الملخصات من الفروع الحالية (بعد أي فلترة)
+  const sumCat = (cat: "hashi" | "sheep" | "beef") => ({
+    purchaseWeight:  branches.reduce((s, b) => s + toN(b[cat].purchaseWeight),  0),
+    purchaseValue:   branches.reduce((s, b) => s + toN(b[cat].totalCostValue),  0),
+    salesWeight:     branches.reduce((s, b) => s + toN(b[cat].salesWeight),     0),
+    salesValue:      branches.reduce((s, b) => s + toN(b[cat].salesValue),      0),
+    remainingWeight: branches.reduce((s, b) => s + toN(b[cat].remainingWeight), 0),
+    remainingValue:  branches.reduce((s, b) => s + toN(b[cat].remainingValue),  0),
+    profit:          branches.reduce((s, b) => s + toN(b[cat].profit),          0),
+  });
+  const summary = {
+    totalPurchaseValue: branches.reduce((s, b) => s + toN(b.hashi.totalCostValue) + toN(b.sheep.totalCostValue) + toN(b.beef.totalCostValue) + toN(b.offal.purchaseValue), 0),
+    totalSalesValue:    branches.reduce((s, b) => s + toN(b.hashi.salesValue) + toN(b.sheep.salesValue) + toN(b.beef.salesValue), 0),
+    totalProfit:        branches.reduce((s, b) => s + toN(b.totalProfit), 0),
+    byCategory: {
+      hashi: sumCat("hashi"),
+      sheep: sumCat("sheep"),
+      beef:  sumCat("beef"),
+      offal: { purchaseValue: branches.reduce((s, b) => s + toN(b.offal.purchaseValue), 0), salesValue: 0, profit: 0 },
+    },
+    purchaseGroupSummary: {
+      hashi: { qty: branches.reduce((s, b) => s + toN(b.hashi.purchaseQty), 0), weight: branches.reduce((s, b) => s + toN(b.hashi.purchaseWeight), 0), price: branches.reduce((s, b) => s + toN(b.hashi.purchaseValue), 0) },
+      sheep: { qty: branches.reduce((s, b) => s + toN(b.sheep.purchaseQty), 0), weight: branches.reduce((s, b) => s + toN(b.sheep.purchaseWeight), 0), price: branches.reduce((s, b) => s + toN(b.sheep.purchaseValue), 0) },
+      beef:  { qty: branches.reduce((s, b) => s + toN(b.beef.purchaseQty),  0), weight: branches.reduce((s, b) => s + toN(b.beef.purchaseWeight),  0), price: branches.reduce((s, b) => s + toN(b.beef.purchaseValue),  0) },
+      offal: { qty: branches.reduce((s, b) => s + toN(b.offal.purchaseValue) > 0 ? 1 : 0, 0), weight: 0, price: branches.reduce((s, b) => s + toN(b.offal.purchaseValue), 0) },
+    },
+  };
 
   const profit = toN(summary.totalProfit);
   const isPositive = profit >= 0;
@@ -432,8 +460,17 @@ interface SalesSummary { cash: number; network: number; transfer: number; deferr
 interface SalesData { branches: SalesBranch[]; summary: SalesSummary; }
 
 function SalesReportPrint({ data }: { data: SalesData }) {
-  const { branches, summary } = data;
+  const { branches } = data;
   const activeBranches = branches.filter(b => b.reportCount > 0);
+  // إعادة حساب الملخص من الفروع الحالية (بعد أي فلترة)
+  const summary: SalesSummary = {
+    cash:     branches.reduce((a, b) => a + toN(b.cash),     0),
+    network:  branches.reduce((a, b) => a + toN(b.network),  0),
+    transfer: branches.reduce((a, b) => a + toN(b.transfer), 0),
+    deferred: branches.reduce((a, b) => a + toN(b.deferred), 0),
+    total:    branches.reduce((a, b) => a + toN(b.total),    0),
+    expenses: branches.reduce((a, b) => a + toN(b.expenses), 0),
+  };
 
   const cols = [
     { key: "network",  label: "شبكة",        color: "#075985", bg: "#f0f9ff", border: "#bae6fd" },
@@ -1227,18 +1264,24 @@ export default function PrintReportsPage() {
   const [purchasesData, setPurchasesData] = useState<PurchaseRow[] | null>(null);
   const [shortagesData, setShortagesData] = useState<ShortagesBranch[] | null>(null);
   const [error, setError] = useState("");
-  // ── فلتر الفروع للمشتريات ──
-  const [purchasesBranches, setPurchasesBranches] = useState<{id: string; name: string}[]>([]);
+  // ── فلتر الفروع (مشترك لكل التقارير) ──
+  const [reportBranches, setReportBranches] = useState<{id: string; name: string}[]>([]);
   const [excludedBranchIds, setExcludedBranchIds] = useState<Set<string>>(new Set());
   const printRef = useRef<HTMLDivElement>(null);
 
   const loadProfitData = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(""); setProfitData(null);
+    setExcludedBranchIds(new Set());
     try {
       const res = await fetch(`/api/admin/profit-report?from=${from}&to=${to}`);
       if (!res.ok) { setError("تعذر تحميل البيانات"); return; }
-      const json = await res.json();
+      const json: ProfitData = await res.json();
       setProfitData(json);
+      setReportBranches(
+        (json.branches ?? [])
+          .map(b => ({ id: b.branchId, name: b.branchName }))
+          .sort((a, b) => a.name.localeCompare(b.name, "ar"))
+      );
     } catch {
       setError("تعذر الاتصال بالخادم");
     } finally {
@@ -1248,6 +1291,7 @@ export default function PrintReportsPage() {
 
   const loadExternalSalesData = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(""); setExternalSalesData(null);
+    setReportBranches([]); setExcludedBranchIds(new Set());
     try {
       const res = await fetch(`/api/external-sales?dateFrom=${from}&dateTo=${to}`);
       if (!res.ok) { setError("تعذر تحميل البيانات"); return; }
@@ -1262,11 +1306,17 @@ export default function PrintReportsPage() {
 
   const loadSalesData = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(""); setSalesData(null);
+    setExcludedBranchIds(new Set());
     try {
       const res = await fetch(`/api/admin/sales-report?from=${from}&to=${to}`);
       if (!res.ok) { setError("تعذر تحميل البيانات"); return; }
-      const json = await res.json();
+      const json: SalesData = await res.json();
       setSalesData(json);
+      setReportBranches(
+        (json.branches ?? [])
+          .map(b => ({ id: b.branchId, name: b.branchName }))
+          .sort((a, b) => a.name.localeCompare(b.name, "ar"))
+      );
     } catch {
       setError("تعذر الاتصال بالخادم");
     } finally {
@@ -1276,7 +1326,7 @@ export default function PrintReportsPage() {
 
   const loadPurchasesData = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(""); setPurchasesData(null);
-    setExcludedBranchIds(new Set()); // إعادة تعيين الفلتر عند التحديث
+    setExcludedBranchIds(new Set());
     try {
       const url = `/api/purchases?all=true&dateFrom=${from}&dateTo=${to}`;
       const res = await fetch(url, { cache: "no-store" });
@@ -1284,10 +1334,9 @@ export default function PrintReportsPage() {
       const json = await res.json();
       const purchases: PurchaseRow[] = json.purchases ?? [];
       setPurchasesData(purchases);
-      // استخراج قائمة الفروع الفريدة تلقائياً من البيانات
       const branchMap: Record<string, string> = {};
       purchases.forEach(p => { if (p.branches?.id) branchMap[p.branches.id] = p.branches.name; });
-      setPurchasesBranches(Object.entries(branchMap).map(([id, name]) => ({ id, name })).sort((a,b) => a.name.localeCompare(b.name, "ar")));
+      setReportBranches(Object.entries(branchMap).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, "ar")));
     } catch {
       setError("تعذر الاتصال بالخادم");
     } finally {
@@ -1297,11 +1346,18 @@ export default function PrintReportsPage() {
 
   const loadShortagesData = useCallback(async (from: string, to: string) => {
     setLoading(true); setError(""); setShortagesData(null);
+    setExcludedBranchIds(new Set());
     try {
       const res = await fetch(`/api/admin/shortages-report?from=${from}&to=${to}`);
       if (!res.ok) { setError("تعذر تحميل بيانات العجوزات"); return; }
       const json = await res.json();
-      setShortagesData(json.rows ?? []);
+      const rows: ShortagesBranch[] = json.rows ?? [];
+      setShortagesData(rows);
+      setReportBranches(
+        rows
+          .map(r => ({ id: r.branchName, name: r.branchName }))
+          .sort((a, b) => a.name.localeCompare(b.name, "ar"))
+      );
     } catch {
       setError("تعذر الاتصال بالخادم");
     } finally {
@@ -1433,9 +1489,9 @@ export default function PrintReportsPage() {
                   ← تعديل
                 </button>
                 <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${selectedType === "profit" ? "bg-green" : selectedType === "sales" ? "bg-sky-400" : "bg-amber"}`} />
+                  <div className={`w-2 h-2 rounded-full ${selectedType === "profit" ? "bg-green" : selectedType === "sales" ? "bg-sky-400" : selectedType === "purchases" ? "bg-amber" : selectedType === "external-sales" ? "bg-purple-400" : selectedType === "shortages" ? "bg-red-400" : "bg-orange-400"}`} />
                   <span className="text-cream text-sm font-medium">
-                    {selectedType === "profit" ? "صافي الربح" : selectedType === "sales" ? "المبيعات" : "المشتريات"}
+                    {reportTypes.find(r => r.type === selectedType)?.title ?? selectedType}
                   </span>
                   <span className="text-muted text-xs">·</span>
                   <span className="text-muted text-xs">
@@ -1465,8 +1521,8 @@ export default function PrintReportsPage() {
               </div>
             </div>
 
-            {/* ── فلتر الفروع لتقرير المشتريات ── */}
-            {selectedType === "purchases" && purchasesBranches.length > 0 && !loading && (
+            {/* ── فلتر الفروع (مشترك لكل التقارير) ── */}
+            {reportBranches.length > 0 && !loading && (
               <div className="rounded-[24px] border border-amber/20 bg-amber/5 p-4 mb-5 no-print">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-amber text-sm font-bold">🔽 استثناء فروع من التقرير</p>
@@ -1478,7 +1534,7 @@ export default function PrintReportsPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {purchasesBranches.map(b => {
+                  {reportBranches.map(b => {
                     const excluded = excludedBranchIds.has(b.id);
                     return (
                       <button key={b.id} onClick={() => {
@@ -1501,12 +1557,7 @@ export default function PrintReportsPage() {
                 {excludedBranchIds.size > 0 && (
                   <p className="text-muted text-xs mt-3">
                     <span className="text-red-400 font-bold">{excludedBranchIds.size}</span> فرع مستثنى —
-                    يظهر في التقرير <span className="text-green font-bold">{purchasesBranches.length - excludedBranchIds.size}</span> فرع فقط
-                    {(() => {
-                      const filtered = purchasesData?.filter(p => !excludedBranchIds.has(p.branches?.id ?? "")) ?? [];
-                      const total = filtered.reduce((a, p) => a + (p.price ?? 0), 0);
-                      return <span className="mr-2 text-amber font-bold">· الإجمالي: {total.toLocaleString("ar-SA-u-nu-latn")} ر.س</span>;
-                    })()}
+                    يظهر في التقرير <span className="text-green font-bold">{reportBranches.length - excludedBranchIds.size}</span> فرع فقط
                   </p>
                 )}
               </div>
@@ -1516,13 +1567,21 @@ export default function PrintReportsPage() {
             <div ref={printRef} className="print-scale-wrap">
               <PrintWrapper reportType={selectedType} range={range} loading={loading}>
                 {selectedType === "profit" && profitData && (
-                  <ProfitReportPrint data={profitData} range={range} />
+                  <ProfitReportPrint data={
+                    excludedBranchIds.size > 0
+                      ? { ...profitData, branches: profitData.branches.filter(b => !excludedBranchIds.has(b.branchId)) }
+                      : profitData
+                  } range={range} />
                 )}
                 {selectedType === "profit" && !profitData && !loading && (
                   <div className="text-center py-12 text-gray-400">لا توجد بيانات في هذه الفترة</div>
                 )}
                 {selectedType === "sales" && salesData && (
-                  <SalesReportPrint data={salesData} />
+                  <SalesReportPrint data={
+                    excludedBranchIds.size > 0
+                      ? { ...salesData, branches: salesData.branches.filter(b => !excludedBranchIds.has(b.branchId)) }
+                      : salesData
+                  } />
                 )}
                 {selectedType === "sales" && !salesData && !loading && (
                   <div className="text-center py-12 text-gray-400">لا توجد بيانات في هذه الفترة</div>
@@ -1562,7 +1621,11 @@ export default function PrintReportsPage() {
                   </div>
                 )}
                 {selectedType === "shortages" && shortagesData && (
-                  <ShortagesReportPrint data={shortagesData} range={range} />
+                  <ShortagesReportPrint data={
+                    excludedBranchIds.size > 0
+                      ? shortagesData.filter(b => !excludedBranchIds.has(b.branchName))
+                      : shortagesData
+                  } range={range} />
                 )}
                 {selectedType === "shortages" && !shortagesData && !loading && (
                   <div className="text-center py-12 text-gray-400">لا توجد تقارير في هذه الفترة</div>

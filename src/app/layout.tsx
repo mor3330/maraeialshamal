@@ -5,6 +5,10 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 export const metadata: Metadata = {
   title: "مراعي الشمال · الإقفال اليومي",
   description: "نظام إدارة الإقفال اليومي لسلسلة مراعي الشمال",
+  icons: {
+    icon: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 export const viewport = {

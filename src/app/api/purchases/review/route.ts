@@ -36,6 +36,52 @@ function emptyCat() {
   return { count: 0, weight: 0, total: 0 };
 }
 
+/** جلب كل سجلات الشهر بـ pagination (1000 صف في كل دفعة) */
+async function fetchAllPurchases(supabase: any, startDate: string, endDate: string, branchId?: string) {
+  const PAGE_SIZE = 1000;
+  let allData: any[] = [];
+  let from = 0;
+
+  while (true) {
+    let q = supabase
+      .from("purchases")
+      .select(`
+        id,
+        purchase_date,
+        quantity,
+        weight,
+        price,
+        notes,
+        branch_id,
+        branches:branch_id(id, name),
+        suppliers:supplier_id(id, name),
+        item_types:item_type_id(id, name, name_en, meat_category)
+      `)
+      .gte("purchase_date", startDate)
+      .lte("purchase_date", endDate)
+      .order("purchase_date", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (branchId) q = q.eq("branch_id", branchId);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    const rows = data ?? [];
+    allData = allData.concat(rows);
+
+    // إذا جاء أقل من PAGE_SIZE فهذا آخر صفحة
+    if (rows.length < PAGE_SIZE) break;
+
+    from += PAGE_SIZE;
+
+    // حماية: لا نتجاوز 50,000 صف
+    if (from >= 50000) break;
+  }
+
+  return allData;
+}
+
 export async function GET(request: Request) {
   const supabase = createServiceClient();
   const { searchParams } = new URL(request.url);
@@ -51,35 +97,12 @@ export async function GET(request: Request) {
   const lastDay = new Date(parseInt(year), parseInt(mon), 0).getDate();
   const endDate = `${year}-${mon}-${String(lastDay).padStart(2, "0")}`;
 
-  let query = supabase
-    .from("purchases")
-    .select(`
-      id,
-      purchase_date,
-      quantity,
-      weight,
-      price,
-      notes,
-      branch_id,
-      branches:branch_id(id, name),
-      suppliers:supplier_id(id, name),
-      item_types:item_type_id(id, name, name_en, meat_category)
-    `)
-    .gte("purchase_date", startDate)
-    .lte("purchase_date", endDate)
-    .order("purchase_date", { ascending: false });
-
-  if (branchId) {
-    query = query.eq("branch_id", branchId);
-  }
-
-  const { data, error } = await query.limit(2000);
-
-  if (error) {
+  let purchases: any[];
+  try {
+    purchases = await fetchAllPurchases(supabase, startDate, endDate, branchId || undefined);
+  } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-
-  const purchases = data ?? [];
 
   // ── ملخص حسب الفئة الرئيسية ──
   const summary: Record<Category, { count: number; weight: number; total: number }> = {
