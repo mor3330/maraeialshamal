@@ -119,16 +119,20 @@ export default function ReviewWithShortage({ slug }: { slug: string }) {
   function calculateMoneyMatch() {
     const toN = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
     // القراءة من الحقول المباشرة أولاً (المحفوظة بـ DynamicStepClient)، ثم step named كـ fallback
-    const totalSales = toN(draft?.totalSales) || getVal('total_sales', 2);
+    const totalSales   = toN(draft?.totalSales)   || getVal('total_sales',   2);
+    const returnsValue = toN(draft?.returnsValue) || getVal('returns_value', 2);
     const payments = draft?.payments ?? [];
     const cash     = toN(payments.find((p: any) => p.methodCode === "cash")?.amount)     || getVal('cash_amount', 2);
     const network  = toN(payments.find((p: any) => p.methodCode === "network")?.amount)  || getVal('network_amount', 2);
     const transfer = toN(payments.find((p: any) => p.methodCode === "transfer")?.amount) || getVal('transfer_amount', 2);
     const deferred = toN(payments.find((p: any) => p.methodCode === "deferred")?.amount) || getVal('deferred_amount', 2);
     const total = cash + network + transfer + deferred;
-    const difference = total - totalSales;
+    // ✅ المرتجعات تُخصم من إجمالي المبيعات
+    // المنطق: مبيعات 150 = كاش 40 + شبكة 100 + مرتجع 10 → الصافي 140 يساوي مدفوعات 140
+    const netSales = totalSales - returnsValue;
+    const difference = total - netSales;
 
-    return { totalSales, cash, network, transfer, deferred, total, difference, isMatch: Math.abs(difference) < 0.01 };
+    return { totalSales, returnsValue, netSales, cash, network, transfer, deferred, total, difference, isMatch: Math.abs(difference) < 0.01 };
   }
 
   /** مقارنة مبيعات النظام (الخطوة 3) بالمبيعات الحقيقية (الخطوة 2) */
@@ -484,6 +488,18 @@ export default function ReviewWithShortage({ slug }: { slug: string }) {
               <span className="text-muted">إجمالي المبيعات:</span>
               <span className="text-cream font-bold">{money.totalSales.toFixed(2)} ر</span>
             </div>
+            {money.returnsValue > 0 && (
+              <>
+                <div className="flex justify-between text-sm">
+                  <span className="text-red-400">- المرتجعات:</span>
+                  <span className="text-red-400">{money.returnsValue.toFixed(2)} ر</span>
+                </div>
+                <div className="flex justify-between font-bold border-t border-line pt-2">
+                  <span className="text-amber">صافي المبيعات (المتوقع):</span>
+                  <span className="text-amber">{money.netSales.toFixed(2)} ر</span>
+                </div>
+              </>
+            )}
             <div className="h-px bg-line my-2" />
             <div className="flex justify-between text-sm">
               <span className="text-muted">كاش:</span>
@@ -503,12 +519,21 @@ export default function ReviewWithShortage({ slug }: { slug: string }) {
             </div>
             <div className="h-px bg-line my-2" />
             <div className="flex justify-between font-bold">
-              <span className="text-muted">المجموع:</span>
+              <span className="text-muted">مجموع المدفوعات:</span>
               <span className="text-cream">{money.total.toFixed(2)} ر</span>
             </div>
             <div className={`text-center font-bold text-lg mt-3 ${getMoneyColor(money.difference)}`}>
-              {money.isMatch ? "✅ الصندوق مطابق" : `⚠️ فرق: ${money.difference.toFixed(2)} ر`}
+              {money.isMatch
+                ? "✅ الصندوق مطابق"
+                : money.difference > 0
+                  ? `⚠️ زيادة في الصندوق: ${money.difference.toFixed(2)} ر`
+                  : `⚠️ عجز في الصندوق: ${Math.abs(money.difference).toFixed(2)} ر`}
             </div>
+            {money.returnsValue > 0 && (
+              <p className="text-xs text-muted text-center mt-1">
+                * المقارنة بعد خصم المرتجعات من المبيعات
+              </p>
+            )}
           </div>
         </div>
 
