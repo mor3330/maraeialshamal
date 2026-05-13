@@ -76,7 +76,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 60_000); // كل دقيقة
+    // ✅ FIX: قللنا التحديث من كل دقيقة إلى كل 5 دقائق لتقليل الضغط على API
+    // (المستخدم يقدر يضغط زر التحديث يدوياً إذا احتاج)
+    const interval = setInterval(load, 300_000); // كل 5 دقائق
     return () => clearInterval(interval);
   }, [load]);
 

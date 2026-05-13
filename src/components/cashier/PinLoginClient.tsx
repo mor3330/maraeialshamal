@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { saveSessionForBranch, clearDraft } from "@/lib/report-store";
 
 interface Branch {
   id: string;
@@ -61,16 +62,10 @@ export default function PinLoginClient({ branch }: Props) {
         setShake(true);
         setTimeout(() => setShake(false), 500);
       } else {
-        // Store session in sessionStorage
-        sessionStorage.setItem(
-          "cashier_session",
-          JSON.stringify({
-            branchId: branch.id,
-            branchName: branch.name,
-            branchSlug: branch.slug,
-            loginAt: new Date().toISOString(),
-          })
-        );
+        // ✅ FIX: حفظ الجلسة بمفتاح خاص بهذا الفرع (لمنع الاختلاط بين الفروع)
+        saveSessionForBranch(branch.id, branch.name, branch.slug);
+        // امسح أي مسودة قديمة من فرع آخر حتى لا تختلط
+        clearDraft();
         router.push(`/branch/${branch.slug}/home`);
       }
     } catch {

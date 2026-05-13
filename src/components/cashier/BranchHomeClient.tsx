@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getSession } from "@/lib/report-store";
+import { getSession, clearDraft, getDraft } from "@/lib/report-store";
 
 interface Report {
   id: string;
@@ -210,13 +210,36 @@ export default function BranchHomeClient({ slug }: { slug: string }) {
                 </p>
               </div>
             ) : (
-              <button
-                onClick={handleStartReport}
-                className="w-full bg-green hover:bg-green-dark text-white rounded-2xl py-4 text-lg font-bold transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
-              >
-                <span>بدء التقرير اليومي</span>
-                <span>←</span>
-              </button>
+              <div className="space-y-2">
+                <button
+                  onClick={handleStartReport}
+                  className="w-full bg-green hover:bg-green-dark text-white rounded-2xl py-4 text-lg font-bold transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+                >
+                  <span>{getDraft() ? "متابعة التقرير الحالي" : "بدء التقرير اليومي"}</span>
+                  <span>←</span>
+                </button>
+
+                {/* ✅ FIX (#6): زر مسح المسودة - يظهر فقط إذا فيه مسودة محفوظة */}
+                {/* مفيد لما الكاشير يبغى يبدأ من الصفر، أو لما المسودة من فرع/يوم آخر بالغلط */}
+                {getDraft() && (
+                  <button
+                    onClick={() => {
+                      const ok = window.confirm(
+                        "هل أنت متأكد من حذف المسودة الحالية؟ سيتم فقدان جميع البيانات غير المرسلة."
+                      );
+                      if (!ok) return;
+                      clearDraft();
+                      // force re-render
+                      router.refresh();
+                      // وكمان نعمل state hack صغير
+                      setSession(s => s ? { ...s } : s);
+                    }}
+                    className="w-full bg-card-hi border border-red/30 text-red rounded-xl py-2 text-sm hover:bg-red/10 transition-colors"
+                  >
+                    🗑️ مسح المسودة المحفوظة والبدء من جديد
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

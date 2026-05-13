@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
+import { signBranchSession, buildSetCookieHeader } from "@/lib/branch-session";
 
 type BranchRow = {
   id: string;
@@ -60,7 +61,12 @@ export async function POST(
     return NextResponse.json({ error: "الرمز غير صحيح" }, { status: 401 });
   }
 
-  return NextResponse.json({
+  // ✅ FIX: نُصدر cookie موقّع HMAC يحتوي على branchId
+  // كل طلبات submit ستتحقق منه ليُمنع تزوير الـ branchId من الـ client
+  const token = signBranchSession(branch.id, branch.slug);
+  const response = NextResponse.json({
     branch: { id: branch.id, name: branch.name, slug: branch.slug },
   });
+  response.headers.set("Set-Cookie", buildSetCookieHeader(token));
+  return response;
 }

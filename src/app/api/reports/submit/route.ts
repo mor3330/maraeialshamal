@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
+import { verifyBranchSession, getSessionCookieName } from "@/lib/branch-session";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,25 @@ export async function POST(request: NextRequest) {
 
     if (!branchId || !reportDate) {
       return NextResponse.json({ error: "branchId and reportDate required" }, { status: 400 });
+    }
+
+    // ✅ FIX (#2): التحقق من جلسة الفرع عبر cookie موقّع
+    // نمنع تزوير الـ branchId من الـ client. لو الـ cookie موجود نتأكد منه؛
+    // ولو غير موجود (جلسات قديمة قبل النشر) نقبل مؤقتاً لتجنب كسر التقارير الحالية.
+    const sessionToken = request.cookies.get(getSessionCookieName())?.value;
+    if (sessionToken) {
+      const sess = verifyBranchSession(sessionToken);
+      if (!sess) {
+        return NextResponse.json({
+          error: "انتهت جلسة الفرع. الرجاء إعادة تسجيل الدخول بالـ PIN."
+        }, { status: 401 });
+      }
+      // الـ branchId في body يجب أن يطابق ما في الـ cookie
+      if (sess.branchId !== branchId && sess.branchSlug !== (body.branchSlug || "")) {
+        return NextResponse.json({
+          error: "🔒 اختلاف بين الفرع في الجلسة والفرع المُرسَل. أعد تسجيل الدخول."
+        }, { status: 403 });
+      }
     }
 
     // التحقق أن الفرع موجود ونشط
