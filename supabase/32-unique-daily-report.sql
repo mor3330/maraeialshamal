@@ -4,11 +4,13 @@
 -- الحل: UNIQUE constraint على (branch_id, report_date) + استخدام upsert في الكود
 
 -- 1) احذف التكرارات الموجودة (إن وُجدت) قبل إضافة القيد
+-- نحتفظ بالأحدث (submitted_at الأكبر) لكل (branch_id, report_date)
+-- إذا submitted_at NULL، نرتّب بالـ id (UUID lexicographic — يكفي للاختيار غير المتعارض)
 WITH ranked AS (
   SELECT id,
          ROW_NUMBER() OVER (
            PARTITION BY branch_id, report_date
-           ORDER BY submitted_at DESC NULLS LAST, created_at DESC NULLS LAST
+           ORDER BY submitted_at DESC NULLS LAST, id DESC
          ) AS rn
   FROM daily_reports
 )
